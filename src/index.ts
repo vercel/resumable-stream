@@ -27,18 +27,18 @@ export interface Publisher {
 interface CreateResumableStreamContextOptions {
   keyPrefix?: string;
   waitUntil: (promise: Promise<unknown>) => void;
-  redisSubscriber?: Subscriber;
-  redisPublisher?: Publisher;
+  subscriber?: Subscriber;
+  publisher?: Publisher;
 }
 
 interface CreateResumableStreamContext {
   keyPrefix: string;
   waitUntil: (promise: Promise<unknown>) => void;
-  redisSubscriber: Subscriber;
-  redisPublisher: Publisher;
+  subscriber: Subscriber;
+  publisher: Publisher;
 }
 
-interface ResumableStreamContext {
+export interface ResumableStreamContext {
   /**
    * Creates a resumable stream.
    *
@@ -46,7 +46,7 @@ interface ResumableStreamContext {
    * @param makeStream - A function that returns a stream of lines. It's only executed if the stream it not yet in progress.
    * @returns A stream of lines.
    */
-  resumeableStream: (
+  resumableStream: (
     streamId: string,
     makeStream: () => ReadableStream<string>,
     resumeAt?: number
@@ -57,24 +57,24 @@ export async function createResumableStreamContext(
   ctx: CreateResumableStreamContextOptions
 ): Promise<ResumableStreamContext> {
   let promises: Promise<unknown>[] = [];
-  if (!ctx.redisSubscriber) {
-    ctx.redisSubscriber = createClient({
+  if (!ctx.subscriber) {
+    ctx.subscriber = createClient({
       url: getRedisUrl(),
     });
-    promises.push(ctx.redisSubscriber.connect());
+    promises.push(ctx.subscriber.connect());
   }
-  if (!ctx.redisPublisher) {
-    ctx.redisPublisher = createClient({
+  if (!ctx.publisher) {
+    ctx.publisher = createClient({
       url: getRedisUrl(),
     });
-    promises.push(ctx.redisPublisher.connect());
+    promises.push(ctx.publisher.connect());
   }
   if (promises.length > 0) {
     await Promise.all(promises);
   }
-  ctx.keyPrefix = `${ctx.keyPrefix || ""}:resume-stream`;
+  ctx.keyPrefix = `${ctx.keyPrefix || "resumable-stream"}:rs`;
   return {
-    resumeableStream: async (
+    resumableStream: async (
       streamId: string,
       makeStream: () => ReadableStream<string>,
       resumeAt?: number
@@ -112,8 +112,8 @@ async function createResumableStream(
 ) {
   const lines: string[] = [];
   let listenerChannels: string[] = [];
-  const currentListenerCount = await ctx.redisPublisher.incr(
-    `resume-stream:sentinel:${streamId}`
+  const currentListenerCount = await ctx.publisher.incr(
+    `${ctx.keyPrefix}:sentinel:${streamId}`
   );
   if (currentListenerCount > 1) {
     return resumeStream(ctx, streamId, resumeAt);
@@ -127,17 +127,28 @@ async function createResumableStream(
       streamDoneResolver = resolve;
     })
   );
+  let isDone = false;
   // This is ultimately racy if two requests for the same ID come at the same time.
   // But this library is for the case where that would not happen.
-  await ctx.redisSubscriber.subscribe(
+  await ctx.subscriber.subscribe(
     `${ctx.keyPrefix}:request:${streamId}`,
     async (message: string) => {
       const parsedMessage = JSON.parse(message) as ResumeStreamMessage;
       const linesToSend = lines.slice(parsedMessage.resumeAt || 0);
-      ctx.redisPublisher?.publish(
-        `${ctx.keyPrefix}:line:${parsedMessage.listenerId}`,
-        linesToSend.join("")
-      );
+      console.log("sending lines", linesToSend.length);
+      if (linesToSend.length > 0) {
+        ctx.publisher.publish(
+          `${ctx.keyPrefix}:line:${parsedMessage.listenerId}`,
+          linesToSend.join("")
+        );
+      }
+      if (isDone) {
+        ctx.publisher.publish(
+          `${ctx.keyPrefix}:line:${parsedMessage.listenerId}`,
+          DONE_MESSAGE
+        );
+      }
+
       listenerChannels.push(parsedMessage.listenerId);
     }
   );
@@ -149,6 +160,7 @@ async function createResumableStream(
       function read() {
         reader.read().then(async ({ done, value }) => {
           if (done) {
+            isDone = true;
             console.log("Stream done");
             try {
               controller.close();
@@ -157,16 +169,15 @@ async function createResumableStream(
             }
             const promises: Promise<unknown>[] = [];
             promises.push(
-              ctx.redisPublisher.del(`${ctx.keyPrefix}:sentinel:${streamId}`)
+              ctx.publisher.del(`${ctx.keyPrefix}:sentinel:${streamId}`)
             );
             promises.push(
-              ctx.redisSubscriber.unsubscribe(
-                `${ctx.keyPrefix}:request:${streamId}`
-              )
+              ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`)
             );
             for (const listenerId of listenerChannels) {
+              console.log("sending done message to", listenerId);
               promises.push(
-                ctx.redisPublisher.publish(
+                ctx.publisher.publish(
                   `${ctx.keyPrefix}:line:${listenerId}`,
                   DONE_MESSAGE
                 )
@@ -188,8 +199,9 @@ async function createResumableStream(
           }
           const promises: Promise<unknown>[] = [];
           for (const listenerId of listenerChannels) {
+            console.log("sending line to", listenerId);
             promises.push(
-              ctx.redisPublisher.publish(
+              ctx.publisher.publish(
                 `${ctx.keyPrefix}:line:${listenerId}`,
                 value
               )
@@ -213,11 +225,9 @@ export async function resumeStream(
   return new ReadableStream<string>({
     async start(controller) {
       const cleanup = async () => {
-        await ctx.redisSubscriber.unsubscribe(
-          `${ctx.keyPrefix}:line:${listenerId}`
-        );
+        await ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:line:${listenerId}`);
       };
-      await ctx.redisSubscriber.subscribe(
+      await ctx.subscriber.subscribe(
         `${ctx.keyPrefix}:line:${listenerId}`,
         async (message: string) => {
           if (message === DONE_MESSAGE) {
@@ -237,7 +247,7 @@ export async function resumeStream(
           }
         }
       );
-      await ctx.redisPublisher.publish(
+      await ctx.publisher.publish(
         `${ctx.keyPrefix}:request:${streamId}`,
         JSON.stringify({
           listenerId,
