@@ -1,12 +1,16 @@
 {
   "name": "resumable-stream",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vercel/resumable-stream"
+  },
   "scripts": {
     "test": "vitest",
     "test:watch": "vitest watch",

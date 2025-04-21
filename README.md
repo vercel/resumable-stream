@@ -17,7 +17,7 @@ import { after } from "next/server";
 
 const streamContext = createResumableStreamContext({
   waitUntil: after,
-  // Optionally pass in your own Redis publisher and susbscriber
+  // Optionally pass in your own Redis publisher and subscriber
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ streamId: string }> }) {
