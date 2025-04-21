@@ -26,7 +26,7 @@ jobs:
         run: pnpm install
 
       - name: Generate documentation
-        run: pnpm docs
+        run: pnpm run docs
 
       - name: Build
         run: pnpm build
