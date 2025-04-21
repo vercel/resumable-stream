@@ -61,18 +61,18 @@ export interface ResumableStreamContext {
    * Throws if the underlying stream is already done. Instead save the complete output to a database and read from that
    * after streaming completed.
    *
-   * By default returns the entire buffered stream. Use `resumeAt` to resume from a specific point.
+   * By default returns the entire buffered stream. Use `skipCharacters` to resume from a specific point.
    *
    * @param streamId - The ID of the stream. Must be unique for each stream.
-   * @param makeStream - A function that returns a stream of lines. It's only executed if the stream it not yet in progress.
-   * @param resumeAt - The number of lines to skip.
-   * @returns A readable stream of strings.
+   * @param makeStream - A function that returns a stream of strings. It's only executed if the stream it not yet in progress.
+   * @param skipCharacters - Number of characters to skip
+   * @returns A readable stream of strings. Returns null if there was a stream with the given streamId but it is already fully done (Defaults to 24 hour expiration)
    */
   resumableStream: (
     streamId: string,
     makeStream: () => ReadableStream<string>,
-    resumeAt?: number
-  ) => Promise<ReadableStream<string>>;
+    skipCharacters?: number
+  ) => Promise<ReadableStream<string> | null>;
 }
 
 /**
@@ -113,14 +113,14 @@ export function createResumableStreamContext(
     resumableStream: async (
       streamId: string,
       makeStream: () => ReadableStream<string>,
-      resumeAt?: number
-    ) => {
+      skipCharacters?: number
+    ): Promise<ReadableStream<string> | null> => {
       return createResumableStream(
         Promise.all(initPromises),
         ctx as CreateResumableStreamContext,
         streamId,
         makeStream,
-        resumeAt
+        skipCharacters
       );
     },
   } as const;
@@ -128,7 +128,7 @@ export function createResumableStreamContext(
 
 interface ResumeStreamMessage {
   listenerId: string;
-  resumeAt?: number;
+  skipCharacters?: number;
 }
 
 const DONE_MESSAGE = "\n\n\nDONE_SENTINEL_hasdfasudfyge374%$%^$EDSATRTYFtydryrte\n";
@@ -136,21 +136,21 @@ const DONE_MESSAGE = "\n\n\nDONE_SENTINEL_hasdfasudfyge374%$%^$EDSATRTYFtydryrte
 const DONE_VALUE = "DONE";
 
 /**
- * Creates a resumable line stream. Each enqued line must be terminated by a newline.
+ * Creates a resumable stream of strings.
  *
  * @param streamId - The ID of the stream.
- * @param makeStream - A function that returns a stream of lines. It's only executed if the stream it not yet in progress.
- * @returns A stream of lines.
+ * @param makeStream - A function that returns a stream of strings. It's only executed if the stream it not yet in progress.
+ * @returns A stream of strings.
  */
 async function createResumableStream(
   initPromise: Promise<unknown>,
   ctx: CreateResumableStreamContext,
   streamId: string,
   makeStream: () => ReadableStream<string>,
-  resumeAt?: number
-) {
+  skipCharacters?: number
+): Promise<ReadableStream<string> | null> {
   await initPromise;
-  const lines: string[] = [];
+  const chunks: string[] = [];
   let listenerChannels: string[] = [];
   const currentListenerCount = await incrOrDone(
     ctx.publisher,
@@ -158,13 +158,13 @@ async function createResumableStream(
   );
   debugLog("currentListenerCount", currentListenerCount);
   if (currentListenerCount === DONE_VALUE) {
-    throw new Error("Stream already done");
+    return null;
   }
   if (currentListenerCount > 1) {
-    return resumeStream(ctx, streamId, resumeAt);
+    return resumeStream(ctx, streamId, skipCharacters);
   }
-  if (resumeAt) {
-    throw new Error("resumeAt given, but stream is not yet in progress");
+  if (skipCharacters) {
+    throw new Error("skipCharacters given, but stream is not yet in progress");
   }
   let streamDoneResolver: () => void;
   ctx.waitUntil(
@@ -180,22 +180,16 @@ async function createResumableStream(
     async (message: string) => {
       const parsedMessage = JSON.parse(message) as ResumeStreamMessage;
       listenerChannels.push(parsedMessage.listenerId);
-      debugLog("parsedMessage", JSON.stringify(lines, null, 2), parsedMessage.resumeAt);
-      const linesToSend = lines
-        //.join("")
-        //.split("\n")
-        .slice(parsedMessage.resumeAt || 0);
-      debugLog("sending lines", linesToSend.length);
+      debugLog("parsedMessage", chunks.length, parsedMessage.skipCharacters);
+      const chunksToSend = chunks.join("").slice(parsedMessage.skipCharacters || 0);
+      debugLog("sending chunks", chunksToSend.length);
       const promises: Promise<unknown>[] = [];
       promises.push(
-        ctx.publisher.publish(
-          `${ctx.keyPrefix}:line:${parsedMessage.listenerId}`,
-          linesToSend.join("")
-        )
+        ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${parsedMessage.listenerId}`, chunksToSend)
       );
       if (isDone) {
         promises.push(
-          ctx.publisher.publish(`${ctx.keyPrefix}:line:${parsedMessage.listenerId}`, DONE_MESSAGE)
+          ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${parsedMessage.listenerId}`, DONE_MESSAGE)
         );
       }
       await Promise.all(promises);
@@ -227,7 +221,7 @@ async function createResumableStream(
             for (const listenerId of listenerChannels) {
               debugLog("sending done message to", listenerId);
               promises.push(
-                ctx.publisher.publish(`${ctx.keyPrefix}:line:${listenerId}`, DONE_MESSAGE)
+                ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, DONE_MESSAGE)
               );
             }
             await Promise.all(promises);
@@ -235,10 +229,7 @@ async function createResumableStream(
             debugLog("Cleanup done");
             return;
           }
-          if (!value.endsWith("\n")) {
-            throw new Error("Each enqueued line must end with a newline");
-          }
-          lines.push(value);
+          chunks.push(value);
           try {
             debugLog("Enqueuing line", value);
             controller.enqueue(value);
@@ -248,7 +239,7 @@ async function createResumableStream(
           const promises: Promise<unknown>[] = [];
           for (const listenerId of listenerChannels) {
             debugLog("sending line to", listenerId);
-            promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:line:${listenerId}`, value));
+            promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, value));
           }
           await Promise.all(promises);
           read();
@@ -262,23 +253,23 @@ async function createResumableStream(
 export async function resumeStream(
   ctx: CreateResumableStreamContext,
   streamId: string,
-  resumeAt?: number
-): Promise<ReadableStream<string>> {
+  skipCharacters?: number
+): Promise<ReadableStream<string> | null> {
   const listenerId = crypto.randomUUID();
-  return new Promise<ReadableStream<string>>((resolve, reject) => {
+  return new Promise<ReadableStream<string> | null>((resolve, reject) => {
     const readableStream = new ReadableStream<string>({
       async start(controller) {
         try {
           debugLog("STARTING STREAM");
           const cleanup = async () => {
-            await ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:line:${listenerId}`);
+            await ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:chunk:${listenerId}`);
           };
           const start = Date.now();
           const timeout = setTimeout(async () => {
             await cleanup();
             const val = await ctx.publisher.get(`${ctx.keyPrefix}:sentinel:${streamId}`);
             if (val === DONE_VALUE) {
-              controller.error(new Error("Stream already done"));
+              resolve(null);
             }
             if (Date.now() - start > 1000) {
               controller.error(new Error("Timeout waiting for ack"));
@@ -286,10 +277,11 @@ export async function resumeStream(
           }, 1000);
           await Promise.all([
             ctx.subscriber.subscribe(
-              `${ctx.keyPrefix}:line:${listenerId}`,
+              `${ctx.keyPrefix}:chunk:${listenerId}`,
               async (message: string) => {
                 // The other side always sends a message even if it is the empty string.
                 clearTimeout(timeout);
+                resolve(readableStream);
                 if (message === DONE_MESSAGE) {
                   try {
                     controller.close();
@@ -311,14 +303,13 @@ export async function resumeStream(
               `${ctx.keyPrefix}:request:${streamId}`,
               JSON.stringify({
                 listenerId,
-                resumeAt,
+                skipCharacters,
               })
             ),
           ]);
         } catch (e) {
           reject(e);
         }
-        resolve(readableStream);
       },
     });
   });
