@@ -1,8 +1,6 @@
-name: CI
+name: Pull Request CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -31,12 +29,5 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Run tests
-        env:
-          REDIS_URL: ${{ secrets.REDIS_URL }}
+      - name: Run tests without Redis
         run: pnpm test
-        if: github.ref == 'refs/heads/main'
-
-      - name: Run tests (without Redis)
-        run: pnpm test
-        if: github.ref != 'refs/heads/main'
