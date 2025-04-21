@@ -1,4 +1,4 @@
-[**Resumable Stream v1.0.3**](../README.md)
+[**Resumable Stream v2.0.0**](../README.md)
 
 ***
 
@@ -6,7 +6,7 @@
 
 # Function: resumeStream()
 
-> **resumeStream**(`ctx`, `streamId`, `resumeAt?`): `Promise`\<`ReadableStream`\<`string`\>\>
+> **resumeStream**(`ctx`, `streamId`, `skipCharacters?`): `Promise`\<`null` \| `ReadableStream`\<`string`\>\>
 
 ## Parameters
 
@@ -18,10 +18,10 @@
 
 `string`
 
-### resumeAt?
+### skipCharacters?
 
 `number`
 
 ## Returns
 
-`Promise`\<`ReadableStream`\<`string`\>\>
+`Promise`\<`null` \| `ReadableStream`\<`string`\>\>

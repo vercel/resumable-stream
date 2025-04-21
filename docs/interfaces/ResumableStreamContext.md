@@ -1,4 +1,4 @@
-[**Resumable Stream v1.0.3**](../README.md)
+[**Resumable Stream v2.0.0**](../README.md)
 
 ***
 
@@ -10,14 +10,14 @@
 
 ### resumableStream()
 
-> **resumableStream**: (`streamId`, `makeStream`, `resumeAt?`) => `Promise`\<`ReadableStream`\<`string`\>\>
+> **resumableStream**: (`streamId`, `makeStream`, `skipCharacters?`) => `Promise`\<`null` \| `ReadableStream`\<`string`\>\>
 
 Creates a resumable stream.
 
 Throws if the underlying stream is already done. Instead save the complete output to a database and read from that
 after streaming completed.
 
-By default returns the entire buffered stream. Use `resumeAt` to resume from a specific point.
+By default returns the entire buffered stream. Use `skipCharacters` to resume from a specific point.
 
 #### Parameters
 
@@ -31,16 +31,16 @@ The ID of the stream. Must be unique for each stream.
 
 () => `ReadableStream`\<`string`\>
 
-A function that returns a stream of lines. It's only executed if the stream it not yet in progress.
+A function that returns a stream of strings. It's only executed if the stream it not yet in progress.
 
-##### resumeAt?
+##### skipCharacters?
 
 `number`
 
-The number of lines to skip.
+Number of characters to skip
 
 #### Returns
 
-`Promise`\<`ReadableStream`\<`string`\>\>
+`Promise`\<`null` \| `ReadableStream`\<`string`\>\>
 
-A readable stream of strings.
+A readable stream of strings. Returns null if there was a stream with the given streamId but it is already fully done (Defaults to 24 hour expiration)

@@ -23,18 +23,21 @@ const streamContext = createResumableStreamContext({
 export async function GET(req: NextRequest, { params }: { params: Promise<{ streamId: string }> }) {
   const { streamId } = await params;
   const resumeAt = req.nextUrl.searchParams.get("resumeAt");
-  return new Response(
-    await streamContext.resumableStream(
-      streamId,
-      makeTestStream,
-      resumeAt ? parseInt(resumeAt) : undefined
-    ),
-    {
-      headers: {
-        "Content-Type": "text/event-stream",
-      },
-    }
+  const stream = await streamContext.resumableStream(
+    streamId,
+    makeTestStream,
+    resumeAt ? parseInt(resumeAt) : undefined
   );
+  if (!stream) {
+    return new Response("Stream is already done", {
+      status: 422,
+    });
+  }
+  return new Response(strean, {
+    headers: {
+      "Content-Type": "text/event-stream",
+    },
+  });
 }
 ```
 
