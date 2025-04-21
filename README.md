@@ -3,6 +3,8 @@
 Library for wrapping streams of strings (Like for example SSE web responses) in a way that
 a client can resume them after they lost a connection, or to allow a second client to follow along.
 
+Designed for use in serverless environments without sticky load balancing.
+
 The library relies on a pubsub mechanism and is designed to be used with Redis. It was designed to
 minimize latency impact and Redis usage for the common case that stream recovery is not needed.
 In that common case the library performs a single `INCR` and `SUBSCRIBE` per stream.

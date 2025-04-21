@@ -22,12 +22,6 @@ export interface Publisher {
   incr: (key: string) => Promise<number>;
 }
 
-interface CreateResumableStreamContextOptions {
-  keyPrefix?: string;
-  waitUntil: (promise: Promise<unknown>) => void;
-  subscriber?: Subscriber;
-  publisher?: Publisher;
-}
 
 interface CreateResumableStreamContext {
   keyPrefix: string;
@@ -36,13 +30,38 @@ interface CreateResumableStreamContext {
   publisher: Publisher;
 }
 
+interface CreateResumableStreamContextOptions {
+  /**
+   * The prefix for the keys used by the resumable streams. Defaults to `resumable-stream`.
+   */
+  keyPrefix?: string;
+  /**
+   * A function that takes a promise and ensures that the current program stays alive until the promise is resolved.
+   */
+  waitUntil: (promise: Promise<unknown>) => void;
+  /**
+   * A pubsub subscriber. Designed to be compatible with clients from the `redis` package.
+   */
+  subscriber?: Subscriber;
+  /**
+   * A pubsub publisher. Designed to be compatible with clients from the `redis` package.
+   */
+  publisher?: Publisher;
+}
+
 export interface ResumableStreamContext {
   /**
    * Creates a resumable stream.
    *
+   * Throws if the underlying stream is already done. Instead save the complete output to a database and read from that
+   * after streaming completed.
+   *
+   * By default returns the entire buffered stream. Use `resumeAt` to resume from a specific point.
+   *
    * @param streamId - The ID of the stream. Must be unique for each stream.
    * @param makeStream - A function that returns a stream of lines. It's only executed if the stream it not yet in progress.
-   * @returns A stream of lines.
+   * @param resumeAt - The number of lines to skip.
+   * @returns A readable stream of strings.
    */
   resumableStream: (
     streamId: string,
@@ -56,7 +75,11 @@ export interface ResumableStreamContext {
  *
  * Call `resumableStream` on the returned context object to create a stream.
  *
- * @param ctx - The context options.
+ * @param options - The context options.
+ * @param options.keyPrefix - The prefix for the keys used by the resumable streams. Defaults to `resumable-stream`.
+ * @param options.waitUntil - A function that takes a promise and ensures that the current program stays alive until the promise is resolved.
+ * @param options.subscriber - A pubsub subscriber. Designed to be compatible with clients from the `redis` package.
+ * @param options.publisher - A pubsub publisher. Designed to be compatible with clients from the `redis` package.
  * @returns A resumable stream context.
  */
 export function createResumableStreamContext(
