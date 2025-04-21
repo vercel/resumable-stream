@@ -23,7 +23,6 @@ export function resumableStreamTests(
         publisher,
         keyPrefix: "test-resumable-stream-" + crypto.randomUUID(),
       });
-      console.log("created resume");
     });
 
     it("should act like a normal stream", async () => {
@@ -77,6 +76,53 @@ export function resumableStreamTests(
       expect(result2).toEqual("1\n2\n");
     });
 
+    it("should actually stream", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      writer.write("1\n");
+      const stream2 = await resume.resumableStream("test", () => readable);
+      const result = await streamToBuffer(stream, 1);
+      const result2 = await streamToBuffer(stream2, 1);
+      expect(result).toEqual("1\n");
+      expect(result2).toEqual("1\n");
+      writer.write("2\n");
+      writer.close();
+      const step1 = await streamToBuffer(stream);
+      const step2 = await streamToBuffer(stream2);
+      expect(step1).toEqual("2\n");
+      expect(step2).toEqual("2\n");
+    });
+
+    it("should actually stream producer first", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      writer.write("1\n");
+      const stream2 = await resume.resumableStream("test", () => readable);
+      const result = await streamToBuffer(stream, 1);
+      expect(result).toEqual("1\n");
+      writer.write("2\n");
+      writer.close();
+      const step1 = await streamToBuffer(stream);
+      const step2 = await streamToBuffer(stream2);
+      expect(step1).toEqual("2\n");
+      expect(step2).toEqual("1\n2\n");
+    });
+
+    it("should actually stream consumer first", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      writer.write("1\n");
+      const stream2 = await resume.resumableStream("test", () => readable);
+      const result2 = await streamToBuffer(stream2, 1);
+      expect(result2).toEqual("1\n");
+      writer.write("2\n");
+      writer.close();
+      const step1 = await streamToBuffer(stream);
+      const step2 = await streamToBuffer(stream2);
+      expect(step1).toEqual("1\n2\n");
+      expect(step2).toEqual("2\n");
+    });
+
     it("should resume multiple streams", async () => {
       const { readable, writer } = createTestingStream();
       const stream = await resume.resumableStream("test", () => readable);
@@ -115,20 +161,7 @@ export function resumableStreamTests(
       expect(result22).toEqual("writer2\n");
     });
 
-    it("should respects resumeAt", async () => {
-      const { readable, writer } = createTestingStream();
-      const stream = await resume.resumableStream("test", () => readable);
-      writer.write("1\n");
-      writer.write("2\n");
-      const stream2 = await resume.resumableStream("test", () => readable, 1);
-      writer.close();
-      const result = await streamToBuffer(stream);
-      const result2 = await streamToBuffer(stream2);
-      expect(result).toEqual("1\n2\n");
-      expect(result2).toEqual("2\n");
-    });
-
-    it("should respects resumeAt 2", async () => {
+    it("should respect skipCharacters", async () => {
       const { readable, writer } = createTestingStream();
       const stream = await resume.resumableStream("test", () => readable);
       writer.write("1\n");
@@ -138,10 +171,36 @@ export function resumableStreamTests(
       const result = await streamToBuffer(stream);
       const result2 = await streamToBuffer(stream2);
       expect(result).toEqual("1\n2\n");
+      expect(result2).toEqual("2\n");
+    });
+
+    it("should respect skipCharacters 2", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      writer.write("1\n");
+      writer.write("2\n");
+      const stream2 = await resume.resumableStream("test", () => readable, 4);
+      writer.close();
+      const result = await streamToBuffer(stream);
+      const result2 = await streamToBuffer(stream2);
+      expect(result).toEqual("1\n2\n");
       expect(result2).toEqual("");
     });
 
-    it("should throw if stream is done", async () => {
+    it("should respect skipCharacters 0", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      writer.write("1\n");
+      writer.write("2\n");
+      const stream2 = await resume.resumableStream("test", () => readable, 0);
+      writer.close();
+      const result = await streamToBuffer(stream);
+      const result2 = await streamToBuffer(stream2);
+      expect(result).toEqual("1\n2\n");
+      expect(result2).toEqual("1\n2\n");
+    });
+
+    it("should return null if stream is done", async () => {
       const { readable, writer } = createTestingStream();
       const stream = await resume.resumableStream("test", () => readable);
       writer.write("1\n");
@@ -149,11 +208,11 @@ export function resumableStreamTests(
       writer.close();
 
       const result = await streamToBuffer(stream);
-      await expect(
-        resume.resumableStream("test", () => {
+      expect(
+        await resume.resumableStream("test", () => {
           throw new Error("Should never be called");
         })
-      ).rejects.toThrow(/Stream already done/);
+      ).toBeNull();
       expect(result).toEqual("1\n2\n");
     });
   });

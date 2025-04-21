@@ -1,6 +1,5 @@
 export function createTestingStream() {
-  let controller: ReadableStreamDefaultController<string> | undefined =
-    undefined;
+  let controller: ReadableStreamDefaultController<string> | undefined = undefined;
   const buffer: string[] = [];
   const readable = new ReadableStream<string>({
     start(c) {
@@ -34,24 +33,37 @@ export function createTestingStream() {
   };
 }
 
-function timeout(ms: number) {
-  return new Promise((resolve, reject) =>
-    setTimeout(() => reject(new Error("timeout")), ms)
-  );
-}
+const readers = new WeakMap<ReadableStream<string>, ReadableStreamDefaultReader<string>>();
 
-export async function streamToBuffer(stream: ReadableStream<string>) {
-  const reader = stream.getReader();
+export async function streamToBuffer(stream: ReadableStream<string> | null, maxNReads?: number) {
+  if (!stream) {
+    throw new Error("Stream should not be null");
+  }
+  const reader = (
+    readers.has(stream) ? readers.get(stream) : stream.getReader()
+  ) as ReadableStreamDefaultReader<string>;
+  readers.set(stream, reader);
   const buffer: string[] = [];
+  function timeout(ms: number) {
+    return new Promise((resolve, reject) =>
+      setTimeout(() => reject(new Error(`Timeout with buffer ${JSON.stringify(buffer)}`)), ms)
+    );
+  }
+  let i = 0;
   while (true) {
-    const { done, value } = await (Promise.race([
-      reader.read(),
-      timeout(2000),
-    ]) as Promise<{ done: boolean; value: string }>);
+    const { done, value } = await (Promise.race([reader.read(), timeout(2000)]) as Promise<{
+      done: boolean;
+      value: string;
+    }>);
+    if (!done) {
+      buffer.push(value);
+    }
+    if (maxNReads && ++i === maxNReads) {
+      break;
+    }
     if (done) {
       break;
     }
-    buffer.push(value);
   }
   return buffer.join("");
 }
