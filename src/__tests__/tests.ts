@@ -2,6 +2,10 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createTestingStream, streamToBuffer } from "../../testing-utils/testing-stream";
 import { createResumableStreamContext, Publisher, ResumableStreamContext, Subscriber } from "..";
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function resumableStreamTests(
   pubsubFactory: () => {
     subscriber: Subscriber | undefined;
@@ -109,6 +113,48 @@ export function resumableStreamTests(
       expect(result2).toEqual("writer2\n");
       expect(result12).toEqual("1\n2\n");
       expect(result22).toEqual("writer2\n");
+    });
+
+    it("should respects resumeAt", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      writer.write("1\n");
+      writer.write("2\n");
+      const stream2 = await resume.resumableStream("test", () => readable, 1);
+      writer.close();
+      const result = await streamToBuffer(stream);
+      const result2 = await streamToBuffer(stream2);
+      expect(result).toEqual("1\n2\n");
+      expect(result2).toEqual("2\n");
+    });
+
+    it("should respects resumeAt 2", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      writer.write("1\n");
+      writer.write("2\n");
+      const stream2 = await resume.resumableStream("test", () => readable, 2);
+      writer.close();
+      const result = await streamToBuffer(stream);
+      const result2 = await streamToBuffer(stream2);
+      expect(result).toEqual("1\n2\n");
+      expect(result2).toEqual("");
+    });
+
+    it("should throw if stream is done", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      writer.write("1\n");
+      writer.write("2\n");
+      writer.close();
+
+      const result = await streamToBuffer(stream);
+      await expect(
+        resume.resumableStream("test", () => {
+          throw new Error("Should never be called");
+        })
+      ).rejects.toThrow(/Stream already done/);
+      expect(result).toEqual("1\n2\n");
     });
   });
 }

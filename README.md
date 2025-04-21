@@ -17,12 +17,10 @@ import { after } from "next/server";
 
 const streamContext = createResumableStreamContext({
   waitUntil: after,
+  // Optionally pass in your own Redis publisher and susbscriber
 });
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ streamId: string }> }
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ streamId: string }> }) {
   const { streamId } = await params;
   const resumeAt = req.nextUrl.searchParams.get("resumeAt");
   return new Response(

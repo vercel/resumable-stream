@@ -22,7 +22,6 @@ export interface Publisher {
   incr: (key: string) => Promise<number>;
 }
 
-
 interface CreateResumableStreamContext {
   keyPrefix: string;
   waitUntil: (promise: Promise<unknown>) => void;
@@ -78,8 +77,8 @@ export interface ResumableStreamContext {
  * @param options - The context options.
  * @param options.keyPrefix - The prefix for the keys used by the resumable streams. Defaults to `resumable-stream`.
  * @param options.waitUntil - A function that takes a promise and ensures that the current program stays alive until the promise is resolved.
- * @param options.subscriber - A pubsub subscriber. Designed to be compatible with clients from the `redis` package.
- * @param options.publisher - A pubsub publisher. Designed to be compatible with clients from the `redis` package.
+ * @param options.subscriber - A pubsub subscriber. Designed to be compatible with clients from the `redis` package. If not provided, a new client will be created based on REDIS_URL or KV_URL environment variables.
+ * @param options.publisher - A pubsub publisher. Designed to be compatible with clients from the `redis` package. If not provided, a new client will be created based on REDIS_URL or KV_URL environment variables.
  * @returns A resumable stream context.
  */
 export function createResumableStreamContext(
@@ -151,6 +150,7 @@ async function createResumableStream(
     ctx.publisher,
     `${ctx.keyPrefix}:sentinel:${streamId}`
   );
+  debugLog("currentListenerCount", currentListenerCount);
   if (currentListenerCount === DONE_VALUE) {
     throw new Error("Stream already done");
   }
@@ -174,8 +174,12 @@ async function createResumableStream(
     async (message: string) => {
       const parsedMessage = JSON.parse(message) as ResumeStreamMessage;
       listenerChannels.push(parsedMessage.listenerId);
-      const linesToSend = lines.slice(parsedMessage.resumeAt || 0);
-      console.log("sending lines", linesToSend.length);
+      debugLog("parsedMessage", JSON.stringify(lines, null, 2), parsedMessage.resumeAt);
+      const linesToSend = lines
+        //.join("")
+        //.split("\n")
+        .slice(parsedMessage.resumeAt || 0);
+      debugLog("sending lines", linesToSend.length);
       const promises: Promise<unknown>[] = [];
       promises.push(
         ctx.publisher.publish(
@@ -200,13 +204,14 @@ async function createResumableStream(
         reader.read().then(async ({ done, value }) => {
           if (done) {
             isDone = true;
-            console.log("Stream done");
+            debugLog("Stream done");
             try {
               controller.close();
             } catch (e) {
               //console.error(e);
             }
             const promises: Promise<unknown>[] = [];
+            debugLog("setting sentinel to done");
             promises.push(
               ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, DONE_VALUE, {
                 EX: 24 * 60 * 60,
@@ -214,14 +219,14 @@ async function createResumableStream(
             );
             promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
             for (const listenerId of listenerChannels) {
-              console.log("sending done message to", listenerId);
+              debugLog("sending done message to", listenerId);
               promises.push(
                 ctx.publisher.publish(`${ctx.keyPrefix}:line:${listenerId}`, DONE_MESSAGE)
               );
             }
             await Promise.all(promises);
             streamDoneResolver?.();
-            console.log("Cleanup done");
+            debugLog("Cleanup done");
             return;
           }
           if (!value.endsWith("\n")) {
@@ -229,14 +234,14 @@ async function createResumableStream(
           }
           lines.push(value);
           try {
-            console.log("Enqueuing line", value);
+            debugLog("Enqueuing line", value);
             controller.enqueue(value);
           } catch (e) {
             // If we cannot enqueue, the stream is already closed, but we WANT to continue.
           }
           const promises: Promise<unknown>[] = [];
           for (const listenerId of listenerChannels) {
-            console.log("sending line to", listenerId);
+            debugLog("sending line to", listenerId);
             promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:line:${listenerId}`, value));
           }
           await Promise.all(promises);
@@ -258,7 +263,7 @@ export async function resumeStream(
     const readableStream = new ReadableStream<string>({
       async start(controller) {
         try {
-          console.log("STARTING STREAM");
+          debugLog("STARTING STREAM");
           const cleanup = async () => {
             await ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:line:${listenerId}`);
           };
@@ -321,4 +326,10 @@ function incrOrDone(publisher: Publisher, key: string): Promise<typeof DONE_VALU
     }
     throw reason;
   });
+}
+
+function debugLog(...messages: unknown[]) {
+  if (process.env.DEBUG || process.env.NODE_ENV === "test") {
+    console.log(...messages);
+  }
 }

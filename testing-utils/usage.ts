@@ -1,7 +1,7 @@
 // This file just exists to ensure certain usages of the constructor are valid.
 
 import { createClient } from "redis";
-import { createResumableStreamContext } from "../dist";
+import { createResumableStreamContext } from "../src";
 import { after } from "next/server";
 import { waitUntil } from "@vercel/functions";
 
