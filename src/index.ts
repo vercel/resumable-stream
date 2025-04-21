@@ -10,21 +10,14 @@ function getRedisUrl() {
 
 export interface Subscriber {
   connect: () => Promise<unknown>;
-  subscribe: (
-    channel: string,
-    callback: (message: string) => void
-  ) => Promise<void>;
+  subscribe: (channel: string, callback: (message: string) => void) => Promise<void>;
   unsubscribe: (channel: string) => Promise<unknown>;
 }
 
 export interface Publisher {
   connect: () => Promise<unknown>;
   publish: (channel: string, message: string) => Promise<unknown>;
-  set: (
-    key: string,
-    value: string,
-    options?: { EX?: number }
-  ) => Promise<unknown>;
+  set: (key: string, value: string, options?: { EX?: number }) => Promise<unknown>;
   get: (key: string) => Promise<string | number | null>;
   incr: (key: string) => Promise<number>;
 }
@@ -110,8 +103,7 @@ interface ResumeStreamMessage {
   resumeAt?: number;
 }
 
-const DONE_MESSAGE =
-  "\n\n\nDONE_SENTINEL_hasdfasudfyge374%$%^$EDSATRTYFtydryrte\n";
+const DONE_MESSAGE = "\n\n\nDONE_SENTINEL_hasdfasudfyge374%$%^$EDSATRTYFtydryrte\n";
 
 const DONE_VALUE = "DONE";
 
@@ -170,10 +162,7 @@ async function createResumableStream(
       );
       if (isDone) {
         promises.push(
-          ctx.publisher.publish(
-            `${ctx.keyPrefix}:line:${parsedMessage.listenerId}`,
-            DONE_MESSAGE
-          )
+          ctx.publisher.publish(`${ctx.keyPrefix}:line:${parsedMessage.listenerId}`, DONE_MESSAGE)
         );
       }
       await Promise.all(promises);
@@ -196,24 +185,15 @@ async function createResumableStream(
             }
             const promises: Promise<unknown>[] = [];
             promises.push(
-              ctx.publisher.set(
-                `${ctx.keyPrefix}:sentinel:${streamId}`,
-                DONE_VALUE,
-                {
-                  EX: 24 * 60 * 60,
-                }
-              )
+              ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, DONE_VALUE, {
+                EX: 24 * 60 * 60,
+              })
             );
-            promises.push(
-              ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`)
-            );
+            promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
             for (const listenerId of listenerChannels) {
               console.log("sending done message to", listenerId);
               promises.push(
-                ctx.publisher.publish(
-                  `${ctx.keyPrefix}:line:${listenerId}`,
-                  DONE_MESSAGE
-                )
+                ctx.publisher.publish(`${ctx.keyPrefix}:line:${listenerId}`, DONE_MESSAGE)
               );
             }
             await Promise.all(promises);
@@ -234,12 +214,7 @@ async function createResumableStream(
           const promises: Promise<unknown>[] = [];
           for (const listenerId of listenerChannels) {
             console.log("sending line to", listenerId);
-            promises.push(
-              ctx.publisher.publish(
-                `${ctx.keyPrefix}:line:${listenerId}`,
-                value
-              )
-            );
+            promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:line:${listenerId}`, value));
           }
           await Promise.all(promises);
           read();
@@ -262,16 +237,12 @@ export async function resumeStream(
         try {
           console.log("STARTING STREAM");
           const cleanup = async () => {
-            await ctx.subscriber.unsubscribe(
-              `${ctx.keyPrefix}:line:${listenerId}`
-            );
+            await ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:line:${listenerId}`);
           };
           const start = Date.now();
           const timeout = setTimeout(async () => {
             await cleanup();
-            const val = await ctx.publisher.get(
-              `${ctx.keyPrefix}:sentinel:${streamId}`
-            );
+            const val = await ctx.publisher.get(`${ctx.keyPrefix}:sentinel:${streamId}`);
             if (val === DONE_VALUE) {
               controller.error(new Error("Stream already done"));
             }
@@ -319,10 +290,7 @@ export async function resumeStream(
   });
 }
 
-function incrOrDone(
-  publisher: Publisher,
-  key: string
-): Promise<typeof DONE_VALUE | number> {
+function incrOrDone(publisher: Publisher, key: string): Promise<typeof DONE_VALUE | number> {
   return publisher.incr(key).catch((reason) => {
     const errorString = String(reason);
     if (errorString.includes("ERR value is not an integer or out of range")) {

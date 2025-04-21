@@ -1,14 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import {
-  createTestingStream,
-  streamToBuffer,
-} from "../../testing-utils/testing-stream";
-import {
-  createResumableStreamContext,
-  Publisher,
-  ResumableStreamContext,
-  Subscriber,
-} from "..";
+import { createTestingStream, streamToBuffer } from "../../testing-utils/testing-stream";
+import { createResumableStreamContext, Publisher, ResumableStreamContext, Subscriber } from "..";
 
 export function resumableStreamTests(
   pubsubFactory: () => {
