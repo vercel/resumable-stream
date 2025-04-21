@@ -1,4 +1,4 @@
-import type { Publisher, Subscriber } from "@/src";
+import type { Publisher, Subscriber } from "../src";
 
 type PubSub = Publisher & Subscriber;
 
@@ -6,11 +6,14 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function createInMemoryPubSubForTesting(): PubSub {
+export function createInMemoryPubSubForTesting(): {
+  subscriber: PubSub;
+  publisher: PubSub;
+} {
   const subscriptions = new Map<string, ((message: string) => void)[]>();
   const data = new Map<string, string | number>();
   console.log("creating in-memory pubsub");
-  return {
+  const pubsub: PubSub = {
     connect: async () => {},
     publish: async (channel, message) => {
       const callbacks = subscriptions.get(channel) || [];
@@ -37,18 +40,29 @@ export function createInMemoryPubSubForTesting(): PubSub {
       await sleep(1);
       subscriptions.delete(channel);
     },
-    del: async (key) => {
-      console.log("deleting", key);
+    set: async (key, value, options) => {
+      console.log("setting", key, value, options);
       await sleep(1);
-      data.delete(key);
+      data.set(key, value);
+    },
+    get: async (key) => {
+      await sleep(1);
+      return data.get(key) || null;
     },
     incr: async (key) => {
       await sleep(1);
       const value = Number(data.get(key)) || 0;
+      if (isNaN(value)) {
+        throw new Error("ERR value is not an integer or out of range");
+      }
       const newValue = value + 1;
       data.set(key, newValue);
       console.log("incremented", key, newValue);
       return newValue;
     },
+  };
+  return {
+    subscriber: pubsub,
+    publisher: pubsub,
   };
 }

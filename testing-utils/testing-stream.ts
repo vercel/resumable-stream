@@ -46,12 +46,12 @@ export async function streamToBuffer(stream: ReadableStream<string>) {
   while (true) {
     const { done, value } = await (Promise.race([
       reader.read(),
-      timeout(100),
+      timeout(2000),
     ]) as Promise<{ done: boolean; value: string }>);
     if (done) {
       break;
     }
     buffer.push(value);
   }
-  return buffer;
+  return buffer.join("");
 }

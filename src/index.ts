@@ -20,7 +20,12 @@ export interface Subscriber {
 export interface Publisher {
   connect: () => Promise<unknown>;
   publish: (channel: string, message: string) => Promise<unknown>;
-  del: (key: string) => Promise<unknown>;
+  set: (
+    key: string,
+    value: string,
+    options?: { EX?: number }
+  ) => Promise<unknown>;
+  get: (key: string) => Promise<string | number | null>;
   incr: (key: string) => Promise<number>;
 }
 
@@ -53,24 +58,21 @@ export interface ResumableStreamContext {
   ) => Promise<ReadableStream<string>>;
 }
 
-export async function createResumableStreamContext(
+export function createResumableStreamContext(
   ctx: CreateResumableStreamContextOptions
-): Promise<ResumableStreamContext> {
-  let promises: Promise<unknown>[] = [];
+): ResumableStreamContext {
+  let initPromises: Promise<unknown>[] = [];
   if (!ctx.subscriber) {
     ctx.subscriber = createClient({
       url: getRedisUrl(),
     });
-    promises.push(ctx.subscriber.connect());
+    initPromises.push(ctx.subscriber.connect());
   }
   if (!ctx.publisher) {
     ctx.publisher = createClient({
       url: getRedisUrl(),
     });
-    promises.push(ctx.publisher.connect());
-  }
-  if (promises.length > 0) {
-    await Promise.all(promises);
+    initPromises.push(ctx.publisher.connect());
   }
   ctx.keyPrefix = `${ctx.keyPrefix || "resumable-stream"}:rs`;
   return {
@@ -80,6 +82,7 @@ export async function createResumableStreamContext(
       resumeAt?: number
     ) => {
       return createResumableStream(
+        Promise.all(initPromises),
         ctx as CreateResumableStreamContext,
         streamId,
         makeStream,
@@ -97,6 +100,8 @@ interface ResumeStreamMessage {
 const DONE_MESSAGE =
   "\n\n\nDONE_SENTINEL_hasdfasudfyge374%$%^$EDSATRTYFtydryrte\n";
 
+const DONE_VALUE = "DONE";
+
 /**
  * Creates a resumable line stream. Each enqued line must be terminated by a newline.
  *
@@ -105,16 +110,22 @@ const DONE_MESSAGE =
  * @returns A stream of lines.
  */
 async function createResumableStream(
+  initPromise: Promise<unknown>,
   ctx: CreateResumableStreamContext,
   streamId: string,
   makeStream: () => ReadableStream<string>,
   resumeAt?: number
 ) {
+  await initPromise;
   const lines: string[] = [];
   let listenerChannels: string[] = [];
-  const currentListenerCount = await ctx.publisher.incr(
+  const currentListenerCount = await incrOrDone(
+    ctx.publisher,
     `${ctx.keyPrefix}:sentinel:${streamId}`
   );
+  if (currentListenerCount === DONE_VALUE) {
+    throw new Error("Stream already done");
+  }
   if (currentListenerCount > 1) {
     return resumeStream(ctx, streamId, resumeAt);
   }
@@ -134,22 +145,25 @@ async function createResumableStream(
     `${ctx.keyPrefix}:request:${streamId}`,
     async (message: string) => {
       const parsedMessage = JSON.parse(message) as ResumeStreamMessage;
+      listenerChannels.push(parsedMessage.listenerId);
       const linesToSend = lines.slice(parsedMessage.resumeAt || 0);
       console.log("sending lines", linesToSend.length);
-      if (linesToSend.length > 0) {
+      const promises: Promise<unknown>[] = [];
+      promises.push(
         ctx.publisher.publish(
           `${ctx.keyPrefix}:line:${parsedMessage.listenerId}`,
           linesToSend.join("")
-        );
-      }
+        )
+      );
       if (isDone) {
-        ctx.publisher.publish(
-          `${ctx.keyPrefix}:line:${parsedMessage.listenerId}`,
-          DONE_MESSAGE
+        promises.push(
+          ctx.publisher.publish(
+            `${ctx.keyPrefix}:line:${parsedMessage.listenerId}`,
+            DONE_MESSAGE
+          )
         );
       }
-
-      listenerChannels.push(parsedMessage.listenerId);
+      await Promise.all(promises);
     }
   );
 
@@ -169,7 +183,13 @@ async function createResumableStream(
             }
             const promises: Promise<unknown>[] = [];
             promises.push(
-              ctx.publisher.del(`${ctx.keyPrefix}:sentinel:${streamId}`)
+              ctx.publisher.set(
+                `${ctx.keyPrefix}:sentinel:${streamId}`,
+                DONE_VALUE,
+                {
+                  EX: 24 * 60 * 60,
+                }
+              )
             );
             promises.push(
               ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`)
@@ -193,6 +213,7 @@ async function createResumableStream(
           }
           lines.push(value);
           try {
+            console.log("Enqueuing line", value);
             controller.enqueue(value);
           } catch (e) {
             // If we cannot enqueue, the stream is already closed, but we WANT to continue.
@@ -220,40 +241,80 @@ export async function resumeStream(
   ctx: CreateResumableStreamContext,
   streamId: string,
   resumeAt?: number
-) {
+): Promise<ReadableStream<string>> {
   const listenerId = crypto.randomUUID();
-  return new ReadableStream<string>({
-    async start(controller) {
-      const cleanup = async () => {
-        await ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:line:${listenerId}`);
-      };
-      await ctx.subscriber.subscribe(
-        `${ctx.keyPrefix}:line:${listenerId}`,
-        async (message: string) => {
-          if (message === DONE_MESSAGE) {
-            try {
-              controller.close();
-            } catch (e) {
-              console.error(e);
+  return new Promise<ReadableStream<string>>((resolve, reject) => {
+    const readableStream = new ReadableStream<string>({
+      async start(controller) {
+        try {
+          console.log("STARTING STREAM");
+          const cleanup = async () => {
+            await ctx.subscriber.unsubscribe(
+              `${ctx.keyPrefix}:line:${listenerId}`
+            );
+          };
+          const start = Date.now();
+          const timeout = setTimeout(async () => {
+            await cleanup();
+            const val = await ctx.publisher.get(
+              `${ctx.keyPrefix}:sentinel:${streamId}`
+            );
+            if (val === DONE_VALUE) {
+              controller.error(new Error("Stream already done"));
             }
-            await cleanup();
-            return;
-          }
-          try {
-            controller.enqueue(message);
-          } catch (e) {
-            console.error(e);
-            await cleanup();
-          }
+            if (Date.now() - start > 1000) {
+              controller.error(new Error("Timeout waiting for ack"));
+            }
+          }, 1000);
+          await Promise.all([
+            ctx.subscriber.subscribe(
+              `${ctx.keyPrefix}:line:${listenerId}`,
+              async (message: string) => {
+                // The other side always sends a message even if it is the empty string.
+                clearTimeout(timeout);
+                if (message === DONE_MESSAGE) {
+                  try {
+                    controller.close();
+                  } catch (e) {
+                    console.error(e);
+                  }
+                  await cleanup();
+                  return;
+                }
+                try {
+                  controller.enqueue(message);
+                } catch (e) {
+                  console.error(e);
+                  await cleanup();
+                }
+              }
+            ),
+            ctx.publisher.publish(
+              `${ctx.keyPrefix}:request:${streamId}`,
+              JSON.stringify({
+                listenerId,
+                resumeAt,
+              })
+            ),
+          ]);
+        } catch (e) {
+          reject(e);
         }
-      );
-      await ctx.publisher.publish(
-        `${ctx.keyPrefix}:request:${streamId}`,
-        JSON.stringify({
-          listenerId,
-          resumeAt,
-        })
-      );
-    },
+        resolve(readableStream);
+      },
+    });
+  });
+}
+
+function incrOrDone(
+  publisher: Publisher,
+  key: string
+): Promise<typeof DONE_VALUE | number> {
+  return publisher.incr(key).catch((reason) => {
+    const errorString = String(reason);
+    if (errorString.includes("ERR value is not an integer or out of range")) {
+      return DONE_VALUE;
+    }
+    throw reason;
   });
 }
