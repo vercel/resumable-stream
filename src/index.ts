@@ -58,9 +58,23 @@ export interface ResumableStreamContext {
   ) => Promise<ReadableStream<string>>;
 }
 
+/**
+ * Creates a global context for resumable streams from which you can create resumable streams.
+ *
+ * Call `resumableStream` on the returned context object to create a stream.
+ *
+ * @param ctx - The context options.
+ * @returns A resumable stream context.
+ */
 export function createResumableStreamContext(
-  ctx: CreateResumableStreamContextOptions
+  options: CreateResumableStreamContextOptions
 ): ResumableStreamContext {
+  const ctx = {
+    keyPrefix: `${options.keyPrefix || "resumable-stream"}:rs`,
+    waitUntil: options.waitUntil,
+    subscriber: options.subscriber,
+    publisher: options.publisher,
+  } as CreateResumableStreamContext;
   let initPromises: Promise<unknown>[] = [];
   if (!ctx.subscriber) {
     ctx.subscriber = createClient({
@@ -74,7 +88,6 @@ export function createResumableStreamContext(
     });
     initPromises.push(ctx.publisher.connect());
   }
-  ctx.keyPrefix = `${ctx.keyPrefix || "resumable-stream"}:rs`;
   return {
     resumableStream: async (
       streamId: string,
