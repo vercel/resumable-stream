@@ -37,3 +37,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
   );
 }
 ```
+
+## Type Docs
+
+[Type Docs](https://github.com/vercel/resumable-stream/blob/main/docs/README.md)
+
+## How it works
+
+- The first time a resumable stream is invoked for a given `streamId`, a standard stream is created.
+- This is now the producer.
+- The producer will always complete the stream, even if the reader of the original stream goes away.
+- Additionally, the producer starts listening on the pubsub for additional consumers.
+- When a second resumable stream is invoked for a given `streamId`, it publishes a messages to alert the producer that it would like to receive the stream.
+- The second consumer now expects messages of stream content via the pubsub.
+- The producer receives the request, and starts publishing the buffered messages and then publishes additional chunks of the stream.
