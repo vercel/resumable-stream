@@ -8,12 +8,18 @@ function getRedisUrl() {
   return redisUrl;
 }
 
+/**
+ * A Redis-like subscriber. Designed to be compatible with clients from the `redis` package.
+ */
 export interface Subscriber {
   connect: () => Promise<unknown>;
   subscribe: (channel: string, callback: (message: string) => void) => Promise<void>;
   unsubscribe: (channel: string) => Promise<unknown>;
 }
 
+/**
+ * A Redis-like publisher. Designed to be compatible with clients from the `redis` package.
+ */
 export interface Publisher {
   connect: () => Promise<unknown>;
   publish: (channel: string, message: string) => Promise<unknown>;
@@ -29,7 +35,7 @@ interface CreateResumableStreamContext {
   publisher: Publisher;
 }
 
-interface CreateResumableStreamContextOptions {
+export interface CreateResumableStreamContextOptions {
   /**
    * The prefix for the keys used by the resumable streams. Defaults to `resumable-stream`.
    */
