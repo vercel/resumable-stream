@@ -33,7 +33,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
       status: 422,
     });
   }
-  return new Response(strean, {
+  return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
     },
