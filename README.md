@@ -11,6 +11,8 @@ In that common case the library performs a single `INCR` and `SUBSCRIBE` per str
 
 ## Usage
 
+### Idempotent API
+
 ```typescript
 import { createResumableStreamContext } from "resumable-stream";
 import { after } from "next/server";
@@ -41,6 +43,56 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
 }
 ```
 
+### Usage with explicit resumption
+
+```typescript
+import { createResumableStreamContext } from "resumable-stream";
+import { after } from "next/server";
+
+const streamContext = createResumableStreamContext({
+  waitUntil: after,
+  // Optionally pass in your own Redis publisher and subscriber
+});
+
+export async function POST(req: NextRequest, { params }: { params: Promise<{ streamId: string }> }) {
+  const { streamId } = await params;
+  const resumeAt = req.nextUrl.searchParams.get("resumeAt");
+  const stream = await streamContext.createNewResumableStream(
+    streamId,
+    makeTestStream,
+    resumeAt ? parseInt(resumeAt) : undefined
+  );
+  if (!stream) {
+    return new Response("Stream is already done", {
+      status: 422,
+    });
+  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+    },
+  });
+}
+
+export async function GET(req: NextRequest, { params }: { params: Promise<{ streamId: string }> }) {
+  const { streamId } = await params;
+  const resumeAt = req.nextUrl.searchParams.get("resumeAt");
+  const stream = await streamContext.resumeExistingStream(
+    streamId,
+    resumeAt ? parseInt(resumeAt) : undefined
+  );
+  if (!stream) {
+    return new Response("Stream is already done", {
+      status: 422,
+    });
+  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+    },
+  });
+}
+
 ## Type Docs
 
 [Type Docs](https://github.com/vercel/resumable-stream/blob/main/docs/README.md)
@@ -54,3 +106,4 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
 - When a second resumable stream is invoked for a given `streamId`, it publishes a messages to alert the producer that it would like to receive the stream.
 - The second consumer now expects messages of stream content via the pubsub.
 - The producer receives the request, and starts publishing the buffered messages and then publishes additional chunks of the stream.
+```

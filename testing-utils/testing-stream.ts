@@ -35,9 +35,15 @@ export function createTestingStream() {
 
 const readers = new WeakMap<ReadableStream<string>, ReadableStreamDefaultReader<string>>();
 
-export async function streamToBuffer(stream: ReadableStream<string> | null, maxNReads?: number) {
-  if (!stream) {
+export async function streamToBuffer(
+  stream: ReadableStream<string> | null | undefined,
+  maxNReads?: number
+) {
+  if (stream === null) {
     throw new Error("Stream should not be null");
+  }
+  if (stream === undefined) {
+    throw new Error("Stream should not be undefined");
   }
   const reader = (
     readers.has(stream) ? readers.get(stream) : stream.getReader()

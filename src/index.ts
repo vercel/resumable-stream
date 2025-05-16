@@ -151,8 +151,13 @@ export function createResumableStreamContext(
       makeStream: () => ReadableStream<string>,
       skipCharacters?: number
     ): Promise<ReadableStream<string> | null> => {
+      const initPromise = Promise.all(initPromises);
+      await initPromise;
+      await ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, "1", {
+        EX: 24 * 60 * 60,
+      });
       return createNewResumableStream(
-        Promise.all(initPromises),
+        initPromise,
         ctx as CreateResumableStreamContext,
         streamId,
         makeStream
@@ -190,7 +195,7 @@ async function resumeExistingStream(
   skipCharacters?: number
 ): Promise<ReadableStream<string> | null | undefined> {
   await initPromise;
-  const state = await ctx.publisher.get(`${ctx.keyPrefix}:state:${streamId}`);
+  const state = await ctx.publisher.get(`${ctx.keyPrefix}:sentinel:${streamId}`);
   if (!state) {
     return undefined;
   }
