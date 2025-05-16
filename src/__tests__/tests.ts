@@ -215,5 +215,30 @@ export function resumableStreamTests(
       ).toBeNull();
       expect(result).toEqual("1\n2\n");
     });
+
+    it("should support the decronstructed APIs", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.createNewResumableStream("test", () => readable);
+      const stream2 = await resume.resumeExistingStream("test");
+      writer.write("1\n");
+      writer.write("2\n");
+      writer.close();
+      const result = await streamToBuffer(stream);
+      const result2 = await streamToBuffer(stream2);
+      expect(result).toEqual("1\n2\n");
+      expect(result2).toEqual("1\n2\n");
+    });
+
+    it("should return null if stream is done explicit APIs", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.createNewResumableStream("test", () => readable);
+      writer.write("1\n");
+      writer.write("2\n");
+      writer.close();
+
+      const result = await streamToBuffer(stream);
+      expect(await resume.resumeExistingStream("test")).toBeNull();
+      expect(result).toEqual("1\n2\n");
+    });
   });
 }

@@ -56,7 +56,7 @@ export interface CreateResumableStreamContextOptions {
 
 export interface ResumableStreamContext {
   /**
-   * Creates a resumable stream.
+   * Creates or resumes a resumable stream.
    *
    * Throws if the underlying stream is already done. Instead save the complete output to a database and read from that
    * after streaming completed.
@@ -69,6 +69,31 @@ export interface ResumableStreamContext {
    * @returns A readable stream of strings. Returns null if there was a stream with the given streamId but it is already fully done (Defaults to 24 hour expiration)
    */
   resumableStream: (
+    streamId: string,
+    makeStream: () => ReadableStream<string>,
+    skipCharacters?: number
+  ) => Promise<ReadableStream<string> | null>;
+  /**
+   * Resumes a stream that was previously created by `createNewResumableStream`.
+   *
+   * @param streamId - The ID of the stream. Must be unique for each stream.
+   * @param makeStream - A function that returns a stream of strings. It's only executed if the stream it not yet in progress.
+   * @param skipCharacters - Number of characters to skip
+   * @returns A readable stream of strings. Returns null if there was a stream with the given streamId but it is already fully done (Defaults to 24 hour expiration). undefined if there is no stream with the given streamId.
+   */
+  resumeExistingStream: (
+    streamId: string,
+    skipCharacters?: number
+  ) => Promise<ReadableStream<string> | null | undefined>;
+  /**
+   * Creates a new resumable stream.
+   *
+   * @param streamId - The ID of the stream. Must be unique for each stream.
+   * @param makeStream - A function that returns a stream of strings. It's only executed if the stream it not yet in progress.
+   * @param skipCharacters - Number of characters to skip
+   * @returns A readable stream of strings. Returns null if there was a stream with the given streamId but it is already fully done (Defaults to 24 hour expiration)
+   */
+  createNewResumableStream: (
     streamId: string,
     makeStream: () => ReadableStream<string>,
     skipCharacters?: number
@@ -110,6 +135,34 @@ export function createResumableStreamContext(
     initPromises.push(ctx.publisher.connect());
   }
   return {
+    resumeExistingStream: async (
+      streamId: string,
+      skipCharacters?: number
+    ): Promise<ReadableStream<string> | null | undefined> => {
+      return resumeExistingStream(
+        Promise.all(initPromises),
+        ctx as CreateResumableStreamContext,
+        streamId,
+        skipCharacters
+      );
+    },
+    createNewResumableStream: async (
+      streamId: string,
+      makeStream: () => ReadableStream<string>,
+      skipCharacters?: number
+    ): Promise<ReadableStream<string> | null> => {
+      const initPromise = Promise.all(initPromises);
+      await initPromise;
+      await ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, "1", {
+        EX: 24 * 60 * 60,
+      });
+      return createNewResumableStream(
+        initPromise,
+        ctx as CreateResumableStreamContext,
+        streamId,
+        makeStream
+      );
+    },
     resumableStream: async (
       streamId: string,
       makeStream: () => ReadableStream<string>,
@@ -135,37 +188,32 @@ const DONE_MESSAGE = "\n\n\nDONE_SENTINEL_hasdfasudfyge374%$%^$EDSATRTYFtydryrte
 
 const DONE_VALUE = "DONE";
 
-/**
- * Creates a resumable stream of strings.
- *
- * @param streamId - The ID of the stream.
- * @param makeStream - A function that returns a stream of strings. It's only executed if the stream it not yet in progress.
- * @returns A stream of strings.
- */
-async function createResumableStream(
+async function resumeExistingStream(
   initPromise: Promise<unknown>,
   ctx: CreateResumableStreamContext,
   streamId: string,
-  makeStream: () => ReadableStream<string>,
   skipCharacters?: number
+): Promise<ReadableStream<string> | null | undefined> {
+  await initPromise;
+  const state = await ctx.publisher.get(`${ctx.keyPrefix}:sentinel:${streamId}`);
+  if (!state) {
+    return undefined;
+  }
+  if (state === DONE_VALUE) {
+    return null;
+  }
+  return resumeStream(ctx, streamId, skipCharacters);
+}
+
+async function createNewResumableStream(
+  initPromise: Promise<unknown>,
+  ctx: CreateResumableStreamContext,
+  streamId: string,
+  makeStream: () => ReadableStream<string>
 ): Promise<ReadableStream<string> | null> {
   await initPromise;
   const chunks: string[] = [];
   let listenerChannels: string[] = [];
-  const currentListenerCount = await incrOrDone(
-    ctx.publisher,
-    `${ctx.keyPrefix}:sentinel:${streamId}`
-  );
-  debugLog("currentListenerCount", currentListenerCount);
-  if (currentListenerCount === DONE_VALUE) {
-    return null;
-  }
-  if (currentListenerCount > 1) {
-    return resumeStream(ctx, streamId, skipCharacters);
-  }
-  if (skipCharacters) {
-    throw new Error("skipCharacters given, but stream is not yet in progress");
-  }
   let streamDoneResolver: () => void;
   ctx.waitUntil(
     new Promise<void>((resolve) => {
@@ -248,6 +296,35 @@ async function createResumableStream(
       read();
     },
   });
+}
+/**
+ * Creates a resumable stream of strings.
+ *
+ * @param streamId - The ID of the stream.
+ * @param makeStream - A function that returns a stream of strings. It's only executed if the stream it not yet in progress.
+ * @returns A stream of strings.
+ */
+async function createResumableStream(
+  initPromise: Promise<unknown>,
+  ctx: CreateResumableStreamContext,
+  streamId: string,
+  makeStream: () => ReadableStream<string>,
+  skipCharacters?: number
+): Promise<ReadableStream<string> | null> {
+  await initPromise;
+
+  const currentListenerCount = await incrOrDone(
+    ctx.publisher,
+    `${ctx.keyPrefix}:sentinel:${streamId}`
+  );
+  debugLog("currentListenerCount", currentListenerCount);
+  if (currentListenerCount === DONE_VALUE) {
+    return null;
+  }
+  if (currentListenerCount > 1) {
+    return resumeStream(ctx, streamId, skipCharacters);
+  }
+  return createNewResumableStream(initPromise, ctx, streamId, makeStream);
 }
 
 export async function resumeStream(
