@@ -56,17 +56,10 @@ const streamContext = createResumableStreamContext({
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ streamId: string }> }) {
   const { streamId } = await params;
-  const resumeAt = req.nextUrl.searchParams.get("resumeAt");
   const stream = await streamContext.createNewResumableStream(
     streamId,
     makeTestStream,
-    resumeAt ? parseInt(resumeAt) : undefined
   );
-  if (!stream) {
-    return new Response("Stream is already done", {
-      status: 422,
-    });
-  }
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
