@@ -6,7 +6,7 @@
 
 # Interface: Publisher
 
-A Redis-like publisher. Designed to be compatible with clients from the `redis` package.
+A Redis-like publisher. Designed to be compatible with clients from both the `redis` and `ioredis` packages.
 
 ## Properties
 

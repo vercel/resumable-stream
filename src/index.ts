@@ -1,4 +1,5 @@
 import { createClient } from "redis";
+import type { Redis } from "ioredis";
 
 function getRedisUrl() {
   const redisUrl = process.env.REDIS_URL || process.env.KV_URL;
@@ -9,23 +10,65 @@ function getRedisUrl() {
 }
 
 /**
- * A Redis-like subscriber. Designed to be compatible with clients from the `redis` package.
+ * A Redis-like subscriber. Designed to be compatible with clients from both the `redis` and `ioredis` packages.
  */
 export interface Subscriber {
   connect: () => Promise<unknown>;
-  subscribe: (channel: string, callback: (message: string) => void) => Promise<void>;
+  subscribe: (channel: string, callback: (message: string) => void) => Promise<void | number>;
   unsubscribe: (channel: string) => Promise<unknown>;
 }
 
 /**
- * A Redis-like publisher. Designed to be compatible with clients from the `redis` package.
+ * A Redis-like publisher. Designed to be compatible with clients from both the `redis` and `ioredis` packages.
  */
 export interface Publisher {
   connect: () => Promise<unknown>;
-  publish: (channel: string, message: string) => Promise<unknown>;
-  set: (key: string, value: string, options?: { EX?: number }) => Promise<unknown>;
+  publish: (channel: string, message: string) => Promise<number | unknown>;
+  set: (key: string, value: string, options?: { EX?: number }) => Promise<"OK" | unknown>;
   get: (key: string) => Promise<string | number | null>;
   incr: (key: string) => Promise<number>;
+}
+
+/**
+ * Creates a Subscriber adapter for a Redis client.
+ * @param client - The Redis client to adapt
+ * @returns A Subscriber interface compatible with the resumable stream
+ */
+function createSubscriberAdapter(client: Redis): Subscriber {
+  const adapter: Subscriber = {
+    connect: () => client.connect(),
+    subscribe: async function (channel: string, callback: (message: string) => void) {
+      client.on("message", (innerChannel, message) => {
+        if (channel === innerChannel) {
+          callback(message);
+        }
+      });
+      await client.subscribe(channel);
+    },
+    unsubscribe: (channel: string) => client.unsubscribe(channel),
+  };
+  return adapter;
+}
+
+/**
+ * Creates a Publisher adapter for a Redis client.
+ * @param client - The Redis client to adapt
+ * @returns A Publisher interface compatible with the resumable stream
+ */
+function createPublisherAdapter(client: Redis): Publisher {
+  const adapter: Publisher = {
+    connect: () => client.connect(),
+    publish: (channel: string, message: string | Buffer) => client.publish(channel, message),
+    set: (key: string, value: string | Buffer, options?: { EX?: number }) => {
+      if (options?.EX) {
+        return client.set(key, value, "EX", options.EX);
+      }
+      return client.set(key, value);
+    },
+    get: (key: string) => client.get(key),
+    incr: (key: string) => client.incr(key),
+  };
+  return adapter;
 }
 
 interface CreateResumableStreamContext {
@@ -47,11 +90,11 @@ export interface CreateResumableStreamContextOptions {
   /**
    * A pubsub subscriber. Designed to be compatible with clients from the `redis` package.
    */
-  subscriber?: Subscriber;
+  subscriber?: Subscriber | Redis;
   /**
    * A pubsub publisher. Designed to be compatible with clients from the `redis` package.
    */
-  publisher?: Publisher;
+  publisher?: Publisher | Redis;
 }
 
 export interface ResumableStreamContext {
@@ -133,6 +176,12 @@ export function createResumableStreamContext(
       url: getRedisUrl(),
     });
     initPromises.push(ctx.publisher.connect());
+  }
+  if (options.subscriber && (options.subscriber as Redis).defineCommand) {
+    ctx.subscriber = createSubscriberAdapter(options.subscriber as Redis);
+  }
+  if (options.publisher && (options.publisher as Redis).defineCommand) {
+    ctx.publisher = createPublisherAdapter(options.publisher as Redis);
   }
   return {
     resumeExistingStream: async (
