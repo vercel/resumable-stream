@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestingStream, streamToBuffer } from "../../testing-utils/testing-stream";
 import { createResumableStreamContext, Publisher, ResumableStreamContext, Subscriber } from "..";
-
+import Redis from "ioredis";
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function resumableStreamTests(
   pubsubFactory: () => {
-    subscriber: Subscriber | undefined;
-    publisher: Publisher | undefined;
+    subscriber: Subscriber | Redis | undefined;
+    publisher: Publisher | Redis | undefined;
   }
 ) {
   describe("resumable stream", () => {

@@ -6,7 +6,7 @@
 
 # Interface: Subscriber
 
-A Redis-like subscriber. Designed to be compatible with clients from the `redis` package.
+A Redis-like subscriber. Designed to be compatible with clients from both the `redis` and `ioredis` packages.
 
 ## Properties
 
@@ -22,7 +22,7 @@ A Redis-like subscriber. Designed to be compatible with clients from the `redis`
 
 ### subscribe()
 
-> **subscribe**: (`channel`, `callback`) => `Promise`\<`void`\>
+> **subscribe**: (`channel`, `callback`) => `Promise`\<`number` \| `void`\>
 
 #### Parameters
 
@@ -36,7 +36,7 @@ A Redis-like subscriber. Designed to be compatible with clients from the `redis`
 
 #### Returns
 
-`Promise`\<`void`\>
+`Promise`\<`number` \| `void`\>
 
 ***
 
