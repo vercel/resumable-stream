@@ -85,6 +85,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
     },
   });
 }
+```
 
 ## Type Docs
 
@@ -99,4 +100,3 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
 - When a second resumable stream is invoked for a given `streamId`, it publishes a messages to alert the producer that it would like to receive the stream.
 - The second consumer now expects messages of stream content via the pubsub.
 - The producer receives the request, and starts publishing the buffered messages and then publishes additional chunks of the stream.
-```
