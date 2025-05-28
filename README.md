@@ -54,12 +54,12 @@ const streamContext = createResumableStreamContext({
   // Optionally pass in your own Redis publisher and subscriber
 });
 
-export async function POST(req: NextRequest, { params }: { params: Promise<{ streamId: string }> }) {
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ streamId: string }> }
+) {
   const { streamId } = await params;
-  const stream = await streamContext.createNewResumableStream(
-    streamId,
-    makeTestStream,
-  );
+  const stream = await streamContext.createNewResumableStream(streamId, makeTestStream);
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
@@ -85,6 +85,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
     },
   });
 }
+```
+
+### Usage with ioredis
+
+If you are using `ioredis` instead of `redis`, you can import from `resumable-stream/ioredis` instead. This changes the default Redis client to `ioredis`.
+
+```typescript
+import { createResumableStreamContext } from "resumable-stream/ioredis";
+
+const streamContext = createResumableStreamContext({
+  waitUntil: after,
+  // Optionally pass in your own Redis publisher and subscriber
+});
 ```
 
 ## Type Docs

@@ -4,9 +4,9 @@
 
 [Resumable Stream](../README.md) / createResumableStreamContext
 
-# Function: createResumableStreamContext()
+# Variable: createResumableStreamContext()
 
-> **createResumableStreamContext**(`options`): [`ResumableStreamContext`](../interfaces/ResumableStreamContext.md)
+> `const` **createResumableStreamContext**: (`options`) => [`ResumableStreamContext`](../interfaces/ResumableStreamContext.md)
 
 Creates a global context for resumable streams from which you can create resumable streams.
 
