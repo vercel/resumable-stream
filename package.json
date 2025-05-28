@@ -3,17 +3,13 @@
   "version": "2.1.0",
   "description": "Library for resuming and following streams in distributed systems",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/vercel/resumable-stream"
-  },
-  "exports": {
-    ".": "./dist/index.js",
-    "./ioredis": "./dist/ioredis.js",
-    "./redis": "./dist/redis.js"
   },
   "scripts": {
     "test": "vitest",
