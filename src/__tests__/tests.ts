@@ -1,18 +1,27 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createTestingStream, streamToBuffer } from "../../testing-utils/testing-stream";
-import { createResumableStreamContext, Publisher, ResumableStreamContext, Subscriber } from "..";
+import {
+  createResumableStreamContext as createRedisResumableStreamContext,
+  Publisher,
+  ResumableStreamContext,
+  Subscriber,
+} from "..";
+import { createResumableStreamContext as createIoredisResumableStreamContext } from "../ioredis";
 import Redis from "ioredis";
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export function resumableStreamTests(
   pubsubFactory: () => {
     subscriber: Subscriber | Redis | undefined;
     publisher: Publisher | Redis | undefined;
-  }
+  },
+  entrypoint: "redis" | "ioredis"
 ) {
   describe("resumable stream", () => {
+    const createResumableStreamContext =
+      entrypoint === "redis"
+        ? createRedisResumableStreamContext
+        : createIoredisResumableStreamContext;
+
     let resume: ResumableStreamContext;
 
     beforeEach(async () => {

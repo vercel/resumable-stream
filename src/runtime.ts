@@ -2,6 +2,7 @@ import type { Redis } from "ioredis";
 import { _Private, Publisher, Subscriber } from "./types";
 import { CreateResumableStreamContextOptions } from "./types";
 import { ResumableStreamContext } from "./types";
+import { createPublisherAdapter, createSubscriberAdapter } from "./ioredis-adapters";
 
 interface CreateResumableStreamContext {
   keyPrefix: string;
@@ -21,6 +22,16 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
       publisher: options.publisher,
     } as CreateResumableStreamContext;
     let initPromises: Promise<unknown>[] = [];
+
+    // Check if user has passed a raw ioredis instance
+    if (options.subscriber && (options.subscriber as Redis).defineCommand) {
+      ctx.subscriber = createSubscriberAdapter(options.subscriber as Redis);
+    }
+    if (options.publisher && (options.publisher as Redis).defineCommand) {
+      ctx.publisher = createPublisherAdapter(options.publisher as Redis);
+    }
+
+    // If user has passed undefined, initialize with defaults
     if (!ctx.subscriber) {
       ctx.subscriber = defaults.subscriber();
       initPromises.push(ctx.subscriber.connect());
@@ -29,6 +40,7 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
       ctx.publisher = defaults.publisher();
       initPromises.push(ctx.publisher.connect());
     }
+
     return {
       resumeExistingStream: async (
         streamId: string,

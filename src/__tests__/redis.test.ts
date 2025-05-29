@@ -7,7 +7,7 @@ if (process.env.REDIS_URL) {
       subscriber: undefined,
       publisher: undefined,
     };
-  });
+  }, "redis");
 } else {
   console.error("REDIS_URL is not set, skipping tests");
   describe("Redis tests", () => {
