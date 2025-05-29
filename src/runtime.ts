@@ -135,6 +135,7 @@ async function createNewResumableStream(
     `${ctx.keyPrefix}:request:${streamId}`,
     async (message: string) => {
       const parsedMessage = JSON.parse(message) as ResumeStreamMessage;
+      debugLog("Connected to listener", parsedMessage.listenerId);
       listenerChannels.push(parsedMessage.listenerId);
       debugLog("parsedMessage", chunks.length, parsedMessage.skipCharacters);
       const chunksToSend = chunks.join("").slice(parsedMessage.skipCharacters || 0);
@@ -245,7 +246,7 @@ export async function resumeStream(
     const readableStream = new ReadableStream<string>({
       async start(controller) {
         try {
-          debugLog("STARTING STREAM");
+          debugLog("STARTING STREAM", streamId, listenerId);
           const cleanup = async () => {
             await ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:chunk:${listenerId}`);
           };
@@ -260,38 +261,37 @@ export async function resumeStream(
               controller.error(new Error("Timeout waiting for ack"));
             }
           }, 1000);
-          await Promise.all([
-            ctx.subscriber.subscribe(
-              `${ctx.keyPrefix}:chunk:${listenerId}`,
-              async (message: string) => {
-                // The other side always sends a message even if it is the empty string.
-                clearTimeout(timeout);
-                resolve(readableStream);
-                if (message === DONE_MESSAGE) {
-                  try {
-                    controller.close();
-                  } catch (e) {
-                    console.error(e);
-                  }
-                  await cleanup();
-                  return;
-                }
+          await ctx.subscriber.subscribe(
+            `${ctx.keyPrefix}:chunk:${listenerId}`,
+            async (message: string) => {
+              debugLog("Received message", message);
+              // The other side always sends a message even if it is the empty string.
+              clearTimeout(timeout);
+              resolve(readableStream);
+              if (message === DONE_MESSAGE) {
                 try {
-                  controller.enqueue(message);
+                  controller.close();
                 } catch (e) {
                   console.error(e);
-                  await cleanup();
                 }
+                await cleanup();
+                return;
               }
-            ),
-            ctx.publisher.publish(
-              `${ctx.keyPrefix}:request:${streamId}`,
-              JSON.stringify({
-                listenerId,
-                skipCharacters,
-              })
-            ),
-          ]);
+              try {
+                controller.enqueue(message);
+              } catch (e) {
+                console.error(e);
+                await cleanup();
+              }
+            }
+          );
+          await ctx.publisher.publish(
+            `${ctx.keyPrefix}:request:${streamId}`,
+            JSON.stringify({
+              listenerId,
+              skipCharacters,
+            })
+          );
         } catch (e) {
           reject(e);
         }
