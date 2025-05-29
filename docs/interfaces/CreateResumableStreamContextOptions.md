@@ -18,7 +18,7 @@ The prefix for the keys used by the resumable streams. Defaults to `resumable-st
 
 ### publisher?
 
-> `optional` **publisher**: [`Publisher`](Publisher.md) \| `Redis`
+> `optional` **publisher**: `Redis` \| [`Publisher`](Publisher.md)
 
 A pubsub publisher. Designed to be compatible with clients from the `redis` package.
 
