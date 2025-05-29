@@ -2,6 +2,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    // Load environment variables before tests run
+    setupFiles: ["dotenv/config"],
     globals: true,
     environment: "node",
     include: ["**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
@@ -9,7 +11,7 @@ export default defineConfig({
       reporter: ["text", "json", "html"],
     },
     // Console output settings
-    silent: false,
+    // silent: false,
     logHeapUsage: true,
     maxConcurrency: 5,
     reporters: ["default"],

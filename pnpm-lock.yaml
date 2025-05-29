@@ -17,6 +17,9 @@ devDependencies:
   '@vercel/functions':
     specifier: ^2
     version: 2.0.0
+  dotenv:
+    specifier: ^16.5.0
+    version: 16.5.0
   ioredis:
     specifier: ^5.6.1
     version: 5.6.1
@@ -1082,6 +1085,11 @@ packages:
     requiresBuild: true
     dev: true
     optional: true
+
+  /dotenv@16.5.0:
+    resolution: {integrity: sha512-m/C+AwOAr9/W1UOIZUo232ejMNnJAJtYQjUbHoNTBNTJSvqzzDh7vnrei3o3r3m9blf6ZoDkvcw0VmozNRFJxg==}
+    engines: {node: '>=12'}
+    dev: true
 
   /eastasianwidth@0.2.0:
     resolution: {integrity: sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==}

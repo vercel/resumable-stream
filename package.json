@@ -29,6 +29,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vercel/functions": "^2",
+    "dotenv": "^16.5.0",
     "ioredis": "^5.6.1",
     "next": "^15",
     "prettier": "^3.2.5",
