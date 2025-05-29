@@ -11,7 +11,7 @@ export default defineConfig({
       reporter: ["text", "json", "html"],
     },
     // Console output settings
-    // silent: false,
+    silent: false,
     logHeapUsage: true,
     maxConcurrency: 5,
     reporters: ["default"],
