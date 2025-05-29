@@ -1,8 +1,8 @@
-**Resumable Stream v2.1.0**
+**Resumable Stream v2.1.1**
 
 ***
 
-# Resumable Stream v2.1.0
+# Resumable Stream v2.1.1
 
 ## Interfaces
 
