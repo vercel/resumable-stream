@@ -11,7 +11,8 @@ In that common case the library performs a single `INCR` and `SUBSCRIBE` per str
 
 ## Usage
 
-### Basic Usage (Auto Redis Connection)
+### Idempotent API
+
 
 The simplest way to use the library is to let it automatically create Redis connections using environment variables (`REDIS_URL` or `KV_URL`):
 
@@ -21,7 +22,7 @@ import { after } from "next/server";
 
 const streamContext = createResumableStreamContext({
   waitUntil: after,
-  // Redis clients will be created automatically from REDIS_URL or KV_URL
+  // Optionally pass in your own Redis publisher and subscriber
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ streamId: string }> }) {
@@ -43,79 +44,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
     },
   });
 }
-```
-
-### Using with node-redis (`redis` package)
-
-You can pass your own Redis clients from the `redis` package:
-
-```typescript
-import { createResumableStreamContext } from "resumable-stream";
-import { createClient } from "redis";
-import { after } from "next/server";
-
-// Create Redis clients
-const redisPublisher = createClient({
-  url: "redis://localhost:6379",
-  // Add any other redis client options
-});
-
-const redisSubscriber = createClient({
-  url: "redis://localhost:6379",
-  // Add any other redis client options
-});
-
-const streamContext = createResumableStreamContext({
-  waitUntil: after,
-  publisher: redisPublisher,
-  subscriber: redisSubscriber,
-});
-
-// Use the same way as basic usage...
-```
-
-### Using with ioredis
-
-For `ioredis`, you have two options:
-
-#### Option 1: Use the ioredis-specific import
-
-```typescript
-import { createResumableStreamContext } from "resumable-stream/ioredis";
-import { after } from "next/server";
-
-const streamContext = createResumableStreamContext({
-  waitUntil: after,
-  // Redis clients will be created automatically using ioredis
-});
-```
-
-#### Option 2: Pass your own ioredis instances
-
-```typescript
-import { createResumableStreamContext } from "resumable-stream";
-import { Redis } from "ioredis";
-import { after } from "next/server";
-
-// Create ioredis instances
-const redis = new Redis("redis://localhost:6379");
-
-// You can use the same instance for both publisher and subscriber
-const streamContext = createResumableStreamContext({
-  waitUntil: after,
-  publisher: redis,
-  subscriber: redis,
-});
-
-// Or use separate instances
-const redisPublisher = new Redis("redis://localhost:6379");
-const redisSubscriber = new Redis("redis://localhost:6379");
-
-const streamContext2 = createResumableStreamContext({
-  waitUntil: after,
-  publisher: redisPublisher,
-  subscriber: redisSubscriber,
-});
 ```
 
 ### Usage with explicit resumption
@@ -162,40 +90,55 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
 }
 ```
 
-## Redis Configuration Options
+### Usage with ioredis
 
-### Environment Variables
+#### Option 1: Use the ioredis-specific import
 
-The library automatically detects Redis connection URLs from these environment variables:
-- `REDIS_URL` - Standard Redis connection URL
-- `KV_URL` - Alternative Redis connection URL (commonly used in serverless environments)
-
-### Custom Redis Configuration
-
-You can pass custom Redis clients with any configuration options supported by your chosen Redis library:
+If you are using `ioredis` instead of `redis`, you can import from `resumable-stream/ioredis` instead. This changes the default Redis client to `ioredis`.
 
 ```typescript
-// node-redis example with custom options
-import { createClient } from "redis";
+import { createResumableStreamContext } from "resumable-stream/ioredis";
 
-const redisClient = createClient({
-  url: "redis://localhost:6379",
-  password: "your-password",
-  database: 1,
-  retry_delay: 100,
-  // ... other node-redis options
+const streamContext = createResumableStreamContext({
+  waitUntil: after,
+  // Optionally pass in your own Redis publisher and subscriber
 });
+```
 
-// ioredis example with custom options
+#### Option 2: Pass your own ioredis instances
+
+```typescript
+import { createResumableStreamContext } from "resumable-stream";
 import { Redis } from "ioredis";
 
-const redisClient = new Redis({
-  host: "localhost",
-  port: 6379,
-  password: "your-password",
-  db: 1,
-  retryDelayOnFailover: 100,
-  // ... other ioredis options
+// Create ioredis instances
+const redis = new Redis("redis://localhost:6379");
+
+const streamContext = createResumableStreamContext({
+  waitUntil: after,
+  publisher: redis,
+  subscriber: redis,
+});
+```
+
+### Using with node-redis (`redis` package)
+
+You can pass your own Redis clients from the `redis` package:
+
+```typescript
+import { createResumableStreamContext } from "resumable-stream";
+import { createClient } from "redis";
+import { after } from "next/server";
+
+// Create Redis client
+const redisClient = createClient({
+  url: "redis://localhost:6379",
+});
+
+const streamContext = createResumableStreamContext({
+  waitUntil: after,
+  publisher: redisClient,
+  subscriber: redisClient,
 });
 ```
 
