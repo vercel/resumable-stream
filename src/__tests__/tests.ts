@@ -58,6 +58,24 @@ export function resumableStreamTests(
       expect(result2).toEqual("1\n2\n");
     });
 
+    it("hasExistingStream", async () => {
+      const { readable, writer } = createTestingStream();
+      expect(await resume.hasExistingStream("test")).toBe(null);
+      const stream = await resume.resumableStream("test", () => readable);
+      expect(await resume.hasExistingStream("test")).toBe(true);
+      expect(await resume.hasExistingStream("test2")).toBe(null);
+      const stream2 = await resume.resumableStream("test", () => readable);
+      expect(await resume.hasExistingStream("test")).toBe(true);
+      writer.write("1\n");
+      writer.write("2\n");
+      writer.close();
+      const result = await streamToBuffer(stream);
+      const result2 = await streamToBuffer(stream2);
+      expect(result).toEqual("1\n2\n");
+      expect(result2).toEqual("1\n2\n");
+      expect(await resume.hasExistingStream("test")).toBe("DONE");
+    });
+
     it("should resume a done stream reverse read", async () => {
       const { readable, writer } = createTestingStream();
       const stream = await resume.resumableStream("test", () => readable);

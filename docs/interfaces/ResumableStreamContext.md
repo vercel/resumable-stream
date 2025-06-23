@@ -1,4 +1,4 @@
-[**Resumable Stream v2.1.1**](../README.md)
+[**Resumable Stream v2.2.0**](../README.md)
 
 ***
 
@@ -39,6 +39,28 @@ Number of characters to skip
 `Promise`\<`null` \| `ReadableStream`\<`string`\>\>
 
 A readable stream of strings. Returns null if there was a stream with the given streamId but it is already fully done (Defaults to 24 hour expiration)
+
+***
+
+### hasExistingStream()
+
+> **hasExistingStream**: (`streamId`) => `Promise`\<`null` \| `true` \| `"DONE"`\>
+
+Checks if a stream with the given streamId exists.
+
+#### Parameters
+
+##### streamId
+
+`string`
+
+The ID of the stream.
+
+#### Returns
+
+`Promise`\<`null` \| `true` \| `"DONE"`\>
+
+null if there is no stream with the given streamId. True if a stream with the given streamId exists. "DONE" if the stream is fully done.
 
 ***
 
