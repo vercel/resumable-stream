@@ -63,6 +63,13 @@ export interface ResumableStreamContext {
     makeStream: () => ReadableStream<string>,
     skipCharacters?: number
   ) => Promise<ReadableStream<string> | null>;
+
+  /**
+   * Checks if a stream with the given streamId exists.
+   * @param streamId - The ID of the stream.
+   * @returns null if there is no stream with the given streamId. True if a stream with the given streamId exists. "DONE" if the stream is fully done.
+   */
+  hasExistingStream: (streamId: string) => Promise<null | true | "DONE">;
 }
 
 /**

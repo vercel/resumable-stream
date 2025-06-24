@@ -1,6 +1,6 @@
 {
   "name": "resumable-stream",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Library for resuming and following streams in distributed systems",
   "main": "dist/index.js",
   "files": [

@@ -83,6 +83,16 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
           skipCharacters
         );
       },
+      hasExistingStream: async (streamId: string): Promise<null | true | "DONE"> => {
+        const state = await ctx.publisher.get(`${ctx.keyPrefix}:sentinel:${streamId}`);
+        if (state === null) {
+          return null;
+        }
+        if (state === DONE_VALUE) {
+          return DONE_VALUE;
+        }
+        return true;
+      },
     } as const;
   };
 }
