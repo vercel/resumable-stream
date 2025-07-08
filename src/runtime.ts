@@ -1,8 +1,16 @@
-import type { Redis } from "ioredis";
+import type { Redis as IORedis } from "ioredis";
+import type { Redis as UpstashRedis } from "@upstash/redis";
 import { _Private, Publisher, Subscriber } from "./types";
 import { CreateResumableStreamContextOptions } from "./types";
 import { ResumableStreamContext } from "./types";
-import { createPublisherAdapter, createSubscriberAdapter } from "./ioredis-adapters";
+import {
+  createPublisherAdapter as createPublisherAdapterIORedis,
+  createSubscriberAdapter as createSubscriberAdapterIORedis,
+} from "./ioredis-adapters";
+import {
+  createSubscriberAdapter as createSubscriberAdapterUpstashRedis,
+  createPublisherAdapter as createPublisherAdapterUpstashRedis,
+} from "./upstash-adapters";
 
 interface CreateResumableStreamContext {
   keyPrefix: string;
@@ -24,11 +32,17 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
     let initPromises: Promise<unknown>[] = [];
 
     // Check if user has passed a raw ioredis instance
-    if (options.subscriber && (options.subscriber as Redis).defineCommand) {
-      ctx.subscriber = createSubscriberAdapter(options.subscriber as Redis);
+    if (options.subscriber && (options.subscriber as IORedis).defineCommand) {
+      ctx.subscriber = createSubscriberAdapterIORedis(options.subscriber as IORedis);
     }
-    if (options.publisher && (options.publisher as Redis).defineCommand) {
-      ctx.publisher = createPublisherAdapter(options.publisher as Redis);
+    if (options.subscriber && (options.subscriber as UpstashRedis).use) {
+      ctx.subscriber = createSubscriberAdapterUpstashRedis(options.subscriber as UpstashRedis);
+    }
+    if (options.publisher && (options.publisher as IORedis).defineCommand) {
+      ctx.publisher = createPublisherAdapterIORedis(options.publisher as IORedis);
+    }
+    if (options.publisher && (options.publisher as UpstashRedis).use) {
+      ctx.publisher = createPublisherAdapterUpstashRedis(options.publisher as UpstashRedis);
     }
 
     // If user has passed undefined, initialize with defaults
