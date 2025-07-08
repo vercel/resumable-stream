@@ -7,20 +7,30 @@ import {
   Subscriber,
 } from "..";
 import { createResumableStreamContext as createIoredisResumableStreamContext } from "../ioredis";
-import Redis from "ioredis";
+import { createResumableStreamContext as createUpstashResumableStreamContext } from "../upstash";
+import IORedis from "ioredis";
+import { Redis as UpstashRedis } from "@upstash/redis";
 
 export function resumableStreamTests(
   pubsubFactory: () => {
-    subscriber: Subscriber | Redis | undefined;
-    publisher: Publisher | Redis | undefined;
+    subscriber: Subscriber | IORedis | UpstashRedis | undefined;
+    publisher: Publisher | IORedis | UpstashRedis | undefined;
   },
-  entrypoint: "redis" | "ioredis"
+  entrypoint: "redis" | "ioredis" | "upstash"
 ) {
   describe("resumable stream", () => {
-    const createResumableStreamContext =
-      entrypoint === "redis"
-        ? createRedisResumableStreamContext
-        : createIoredisResumableStreamContext;
+    let createResumableStreamContext;
+    switch (entrypoint) {
+      case "redis":
+        createResumableStreamContext = createRedisResumableStreamContext;
+        break;
+      case "ioredis":
+        createResumableStreamContext = createIoredisResumableStreamContext;
+        break;
+      case "upstash":
+        createResumableStreamContext = createUpstashResumableStreamContext;
+        break;
+    }
 
     let resume: ResumableStreamContext;
 
