@@ -17,6 +17,10 @@ export interface CreateResumableStreamContextOptions {
    * A pubsub publisher. Designed to be compatible with clients from the `redis` package.
    */
   publisher?: Publisher | Redis;
+  /**
+   * Time to live in seconds for Redis keys. Defaults to 24 hours (86400 seconds).
+   */
+  ttl?: number;
 }
 
 export interface ResumableStreamContext {
