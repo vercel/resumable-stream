@@ -100,6 +100,21 @@ const streamContext = createResumableStreamContext({
 });
 ```
 
+### Usage with custom TTL
+
+You can customize the time-to-live for Redis keys by passing a `ttl` parameter in seconds:
+
+```typescript
+import { createResumableStreamContext } from "resumable-stream";
+import { after } from "next/server";
+
+const streamContext = createResumableStreamContext({
+  waitUntil: after,
+  ttl: 3600, // 1 hour instead of the default 24 hours
+  // Optionally pass in your own Redis publisher and subscriber
+});
+```
+
 ## Type Docs
 
 [Type Docs](https://github.com/vercel/resumable-stream/blob/main/docs/README.md)

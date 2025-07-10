@@ -32,6 +32,14 @@ A pubsub subscriber. Designed to be compatible with clients from the `redis` pac
 
 ***
 
+### ttl?
+
+> `optional` **ttl**: `number`
+
+Time to live in seconds for Redis keys. Defaults to 24 hours (86400 seconds).
+
+***
+
 ### waitUntil()
 
 > **waitUntil**: (`promise`) => `void`
