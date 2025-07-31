@@ -15,9 +15,10 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
   return function createResumableStreamContext(
     options: CreateResumableStreamContextOptions
   ): ResumableStreamContext {
+    const waitUntil = options.waitUntil || (async (p) => await p);
     const ctx = {
       keyPrefix: `${options.keyPrefix || "resumable-stream"}:rs`,
-      waitUntil: options.waitUntil,
+      waitUntil,
       subscriber: options.subscriber,
       publisher: options.publisher,
     } as CreateResumableStreamContext;
