@@ -9,6 +9,7 @@ interface CreateResumableStreamContext {
   waitUntil: (promise: Promise<unknown>) => void;
   subscriber: Subscriber;
   publisher: Publisher;
+  ttl: number;
 }
 
 export function createResumableStreamContextFactory(defaults: _Private.RedisDefaults) {
@@ -21,6 +22,7 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
       waitUntil,
       subscriber: options.subscriber,
       publisher: options.publisher,
+      ttl: options.ttl ?? 24 * 60 * 60,
     } as CreateResumableStreamContext;
     let initPromises: Promise<unknown>[] = [];
 
@@ -62,7 +64,7 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
         const initPromise = Promise.all(initPromises);
         await initPromise;
         await ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, "1", {
-          EX: 24 * 60 * 60,
+          EX: ctx.ttl,
         });
         return createNewResumableStream(
           initPromise,
@@ -182,7 +184,7 @@ async function createNewResumableStream(
             debugLog("setting sentinel to done");
             promises.push(
               ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, DONE_VALUE, {
-                EX: 24 * 60 * 60,
+                EX: ctx.ttl,
               })
             );
             promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
