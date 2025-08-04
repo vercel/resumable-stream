@@ -46,9 +46,8 @@ export interface ResumableStreamContext {
    * Resumes a stream that was previously created by `createNewResumableStream`.
    *
    * @param streamId - The ID of the stream. Must be unique for each stream.
-   * @param makeStream - A function that returns a stream of strings. It's only executed if the stream it not yet in progress.
    * @param skipCharacters - Number of characters to skip
-   * @returns A readable stream of strings. Returns null if there was a stream with the given streamId but it is already fully done (Defaults to 24 hour expiration). undefined if there is no stream with the given streamId.
+   * @returns A readable stream of strings. Returns null if there was a stream with the given streamId but it is already fully done (Defaults to 24 hour expiration). Returns undefined if there is no stream with the given streamId.
    */
   resumeExistingStream: (
     streamId: string,
