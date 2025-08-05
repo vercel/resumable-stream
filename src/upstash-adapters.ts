@@ -16,7 +16,9 @@ export function createSubscriberAdapter(client: Redis): Subscriber {
       const subscriber = activeSubscriptions.get(channel) ?? client.subscribe(channel);
       subscriber.on("message", (message) => {
         if (message.channel === channel) {
-          callback(message.message as string);
+          callback(
+            typeof message.message === "string" ? message.message : JSON.stringify(message.message)
+          );
         }
       });
       activeSubscriptions.set(channel, subscriber);
@@ -40,7 +42,8 @@ export function createSubscriberAdapter(client: Redis): Subscriber {
 export function createPublisherAdapter(client: Redis): Publisher {
   const adapter: Publisher = {
     connect: () => Promise.resolve(),
-    publish: (channel: string, message: string | Buffer) => client.publish(channel, message),
+    publish: (channel: string, message: string | Buffer) =>
+      client.publish(channel, JSON.stringify(message)),
     set: (key: string, value: string | Buffer, options?: { EX?: number }) => {
       if (options?.EX) {
         return client.setex(key, options.EX, value);
