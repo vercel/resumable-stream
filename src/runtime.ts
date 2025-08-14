@@ -332,7 +332,7 @@ function incrOrDone(publisher: Publisher, key: string): Promise<typeof DONE_VALU
 }
 
 function isDebug() {
-  return process.env.DEBUG || process.env.NODE_ENV === "test";
+  return process.env.DEBUG;
 }
 
 function debugLog(...messages: unknown[]) {
