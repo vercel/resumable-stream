@@ -322,7 +322,7 @@ function incrOrDone(publisher: Publisher, key: string): Promise<typeof DONE_VALU
 }
 
 function debugLog(...messages: unknown[]) {
-  if (process.env.DEBUG || process.env.NODE_ENV === "test") {
-    console.log(...messages);
+  if (process.env.DEBUG) {
+    console.log('resumable-stream', ...messages);
   }
 }
