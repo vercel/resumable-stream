@@ -283,7 +283,12 @@ export async function resumeStream(
                 try {
                   controller.close();
                 } catch (e) {
-                  console.error(e);
+                  // errors can e.g. happen if the stream is already closed
+                  // because the client has disconnected
+                  // ignore them unless we are in debug mode
+                  if (isDebug()) {
+                    console.error(e);
+                  }
                 }
                 await cleanup();
                 return;
@@ -291,7 +296,12 @@ export async function resumeStream(
               try {
                 controller.enqueue(message);
               } catch (e) {
-                console.error(e);
+                // errors can e.g. happen if the stream is already closed
+                // because the client has disconnected
+                // ignore them unless we are in debug mode
+                if (isDebug()) {
+                  console.error(e);
+                }
                 await cleanup();
               }
             }
@@ -321,8 +331,12 @@ function incrOrDone(publisher: Publisher, key: string): Promise<typeof DONE_VALU
   });
 }
 
+function isDebug() {
+  return process.env.DEBUG || process.env.NODE_ENV === "test";
+}
+
 function debugLog(...messages: unknown[]) {
-  if (process.env.DEBUG || process.env.NODE_ENV === "test") {
+  if (isDebug()) {
     console.log(...messages);
   }
 }
