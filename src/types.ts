@@ -40,7 +40,8 @@ export interface ResumableStreamContext {
   resumableStream: (
     streamId: string,
     makeStream: () => ReadableStream<string>,
-    skipCharacters?: number
+    skipCharacters?: number,
+    cancellationController?: AbortController
   ) => Promise<ReadableStream<string> | null>;
   /**
    * Resumes a stream that was previously created by `createNewResumableStream`.
@@ -65,7 +66,8 @@ export interface ResumableStreamContext {
   createNewResumableStream: (
     streamId: string,
     makeStream: () => ReadableStream<string>,
-    skipCharacters?: number
+    skipCharacters?: number,
+    cancellationController?: AbortController
   ) => Promise<ReadableStream<string> | null>;
 
   /**
@@ -74,6 +76,14 @@ export interface ResumableStreamContext {
    * @returns null if there is no stream with the given streamId. True if a stream with the given streamId exists. "DONE" if the stream is fully done.
    */
   hasExistingStream: (streamId: string) => Promise<null | true | "DONE">;
+
+  /**
+   * Publishes a cancellation signal to the specified stream's control channel,
+   * triggering any AbortController linked during the stream's creation.
+   *
+   * @param streamId - The ID of the stream to cancel.
+   */
+  sendCancellationSignal: (streamId: string) => Promise<void>;
 }
 
 /**

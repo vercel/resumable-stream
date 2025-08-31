@@ -57,31 +57,36 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
       createNewResumableStream: async (
         streamId: string,
         makeStream: () => ReadableStream<string>,
-        skipCharacters?: number
+        skipCharacters?: number,
+        cancellationController?: AbortController
       ): Promise<ReadableStream<string> | null> => {
         const initPromise = Promise.all(initPromises);
         await initPromise;
         await ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, "1", {
           EX: 24 * 60 * 60,
         });
+
         return createNewResumableStream(
           initPromise,
           ctx as CreateResumableStreamContext,
           streamId,
-          makeStream
+          makeStream,
+          cancellationController
         );
       },
       resumableStream: async (
         streamId: string,
         makeStream: () => ReadableStream<string>,
-        skipCharacters?: number
+        skipCharacters?: number,
+        cancellationController?: AbortController
       ): Promise<ReadableStream<string> | null> => {
         return createResumableStream(
           Promise.all(initPromises),
           ctx as CreateResumableStreamContext,
           streamId,
           makeStream,
-          skipCharacters
+          skipCharacters,
+          cancellationController
         );
       },
       hasExistingStream: async (streamId: string): Promise<null | true | "DONE"> => {
@@ -93,6 +98,14 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
           return DONE_VALUE;
         }
         return true;
+      },
+      sendCancellationSignal: async (streamId: string): Promise<void> => {
+        const controlStateKey = `${ctx.keyPrefix}:control-state:${streamId}`;
+        const controlChannel = `${ctx.keyPrefix}:control:${streamId}`;
+        await Promise.all([
+          ctx.publisher.set(controlStateKey, "ABORTED", { EX: 24 * 60 * 60 }),
+          ctx.publisher.publish(controlChannel, "ABORT"),
+        ]);
       },
     } as const;
   };
@@ -128,9 +141,13 @@ async function createNewResumableStream(
   initPromise: Promise<unknown>,
   ctx: CreateResumableStreamContext,
   streamId: string,
-  makeStream: () => ReadableStream<string>
+  makeStream: () => ReadableStream<string>,
+  cancellationController?: AbortController
 ): Promise<ReadableStream<string> | null> {
   await initPromise;
+  if (cancellationController) {
+    await _linkController(ctx, streamId, cancellationController);
+  }
   const chunks: string[] = [];
   let listenerChannels: string[] = [];
   let streamDoneResolver: () => void;
@@ -168,50 +185,80 @@ async function createNewResumableStream(
     start(controller) {
       const stream = makeStream();
       const reader = stream.getReader();
+
+      const handleError = (err: unknown) => {
+        // We specifically check for AbortError. We don't want to suppress other, real errors.
+        if (!(err instanceof Error) || err.name !== "AbortError") {
+          console.error("[resumable-stream] Producer stream threw an error:", err);
+        }
+        // Whether an abort or another error, we treat the stream as "done".
+        isDone = true;
+        try {
+          controller.close();
+        } catch (_e) {} // Ignore errors if already closed.
+
+        const promises: Promise<unknown>[] = [];
+        promises.push(
+          ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, DONE_VALUE, {
+            EX: 24 * 60 * 60,
+          })
+        );
+        promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
+        for (const listenerId of listenerChannels) {
+          promises.push(
+            ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, DONE_MESSAGE)
+          );
+        }
+        Promise.all(promises).then(() => streamDoneResolver?.());
+      };
+
       function read() {
-        reader.read().then(async ({ done, value }) => {
-          if (done) {
-            isDone = true;
-            debugLog("Stream done");
+        reader
+          .read()
+          .then(async ({ done, value }) => {
+            if (done) {
+              isDone = true;
+              debugLog("Stream done");
+              try {
+                controller.close();
+              } catch (e) {
+                //console.error(e);
+              }
+              const promises: Promise<unknown>[] = [];
+              debugLog("setting sentinel to done");
+              promises.push(
+                ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, DONE_VALUE, {
+                  EX: 24 * 60 * 60,
+                })
+              );
+              promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
+              for (const listenerId of listenerChannels) {
+                debugLog("sending done message to", listenerId);
+                promises.push(
+                  ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, DONE_MESSAGE)
+                );
+              }
+              await Promise.all(promises);
+              streamDoneResolver?.();
+              debugLog("Cleanup done");
+              return;
+            }
+            chunks.push(value);
             try {
-              controller.close();
+              debugLog("Enqueuing line", value);
+              controller.enqueue(value);
             } catch (e) {
-              //console.error(e);
+              // If we cannot enqueue, the stream is already closed, but we WANT to continue.
             }
             const promises: Promise<unknown>[] = [];
-            debugLog("setting sentinel to done");
-            promises.push(
-              ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, DONE_VALUE, {
-                EX: 24 * 60 * 60,
-              })
-            );
-            promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
             for (const listenerId of listenerChannels) {
-              debugLog("sending done message to", listenerId);
-              promises.push(
-                ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, DONE_MESSAGE)
-              );
+              debugLog("sending line to", listenerId);
+              promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, value));
             }
             await Promise.all(promises);
-            streamDoneResolver?.();
-            debugLog("Cleanup done");
-            return;
-          }
-          chunks.push(value);
-          try {
-            debugLog("Enqueuing line", value);
-            controller.enqueue(value);
-          } catch (e) {
-            // If we cannot enqueue, the stream is already closed, but we WANT to continue.
-          }
-          const promises: Promise<unknown>[] = [];
-          for (const listenerId of listenerChannels) {
-            debugLog("sending line to", listenerId);
-            promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, value));
-          }
-          await Promise.all(promises);
-          read();
-        });
+            read();
+          })
+          .catch(handleError);
       }
       read();
     },
@@ -229,7 +276,8 @@ async function createResumableStream(
   ctx: CreateResumableStreamContext,
   streamId: string,
   makeStream: () => ReadableStream<string>,
-  skipCharacters?: number
+  skipCharacters?: number,
+  cancellationController?: AbortController
 ): Promise<ReadableStream<string> | null> {
   await initPromise;
 
@@ -244,7 +292,7 @@ async function createResumableStream(
   if (currentListenerCount > 1) {
     return resumeStream(ctx, streamId, skipCharacters);
   }
-  return createNewResumableStream(initPromise, ctx, streamId, makeStream);
+  return createNewResumableStream(initPromise, ctx, streamId, makeStream, cancellationController);
 }
 
 export async function resumeStream(
@@ -324,5 +372,60 @@ function incrOrDone(publisher: Publisher, key: string): Promise<typeof DONE_VALU
 function debugLog(...messages: unknown[]) {
   if (process.env.DEBUG || process.env.NODE_ENV === "test") {
     console.log(...messages);
+  }
+}
+
+/**
+ * Links a controller to the Redis cancellation mechanism.
+ * @internal
+ */
+async function _linkController(
+  ctx: CreateResumableStreamContext,
+  streamId: string,
+  controller: AbortController
+): Promise<void> {
+  const controlChannel = `${ctx.keyPrefix}:control:${streamId}`;
+  const controlStateKey = `${ctx.keyPrefix}:control-state:${streamId}`;
+
+  // It's idempotent, so it's safe to call multiple times.
+  let hasCleanedUp = false;
+  const cleanup = () => {
+    if (hasCleanedUp) return;
+    hasCleanedUp = true;
+    // We remove our own listener before unsubscribing.
+    controller.signal.removeEventListener("abort", cleanup);
+    // Unsubscribe in the background without waiting.
+    ctx.waitUntil(ctx.subscriber.unsubscribe(controlChannel));
+  };
+
+  // Attach the self-cleaning listener immediately.
+  controller.signal.addEventListener("abort", cleanup, { once: true });
+
+  // A failure here is non-critical; we can proceed to the subscription.
+  try {
+    const state = await ctx.publisher.get(controlStateKey);
+    if (state === "ABORTED") {
+      controller.abort(); // This will trigger the cleanup listener.
+      return;
+    }
+  } catch (e) {
+    // If the GET fails, we log it but DO NOT clean up. We must still attempt to subscribe.
+    debugLog(
+      `[resumable-stream:${streamId}] Could not check initial abort state. Proceeding to subscribe.`,
+      e
+    );
+  }
+
+  try {
+    // If not already aborted, subscribe for live updates.
+    await ctx.subscriber.subscribe(controlChannel, (message: string) => {
+      if (message === "ABORT") {
+        controller.abort(); // This will also trigger the cleanup listener.
+      }
+    });
+  } catch (e) {
+    console.error(`[resumable-stream:${streamId}] Failed to link controller`, e);
+    // If we failed, clean up immediately.
+    cleanup();
   }
 }
