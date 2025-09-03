@@ -1,8 +1,12 @@
 import type { Redis } from "ioredis";
-import { _Private, Publisher, Subscriber } from "./types";
-import { CreateResumableStreamContextOptions } from "./types";
-import { ResumableStreamContext } from "./types";
 import { createPublisherAdapter, createSubscriberAdapter } from "./ioredis-adapters";
+import {
+  _Private,
+  CreateResumableStreamContextOptions,
+  Publisher,
+  ResumableStreamContext,
+  Subscriber,
+} from "./types";
 
 interface CreateResumableStreamContext {
   keyPrefix: string;
@@ -43,6 +47,9 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
     }
 
     return {
+      cancelStream: async (streamId: string): Promise<void> => {
+        await cancelStream(ctx, streamId);
+      },
       resumeExistingStream: async (
         streamId: string,
         skipCharacters?: number
@@ -124,6 +131,10 @@ async function resumeExistingStream(
   return resumeStream(ctx, streamId, skipCharacters);
 }
 
+async function cancelStream(ctx: CreateResumableStreamContext, streamId: string): Promise<void> {
+  await ctx.publisher.publish(`${ctx.keyPrefix}:cancel:${streamId}`, "");
+}
+
 async function createNewResumableStream(
   initPromise: Promise<unknown>,
   ctx: CreateResumableStreamContext,
@@ -168,6 +179,11 @@ async function createNewResumableStream(
     start(controller) {
       const stream = makeStream();
       const reader = stream.getReader();
+
+      ctx.subscriber.subscribe(`${ctx.keyPrefix}:cancel:${streamId}`, async () => {
+        await reader.cancel();
+      });
+
       function read() {
         reader.read().then(async ({ done, value }) => {
           if (done) {
@@ -185,6 +201,7 @@ async function createNewResumableStream(
                 EX: 24 * 60 * 60,
               })
             );
+            promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:cancel:${streamId}`));
             promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
             for (const listenerId of listenerChannels) {
               debugLog("sending done message to", listenerId);
@@ -194,6 +211,7 @@ async function createNewResumableStream(
             }
             await Promise.all(promises);
             streamDoneResolver?.();
+            reader.releaseLock();
             debugLog("Cleanup done");
             return;
           }
