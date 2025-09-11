@@ -12,7 +12,7 @@ export interface CreateResumableStreamContextOptions {
    * If you are deploying to a server environment, where you don't have to worry about
    * the function getting suspended, pass in null.
    */
-  waitUntil: (promise: Promise<unknown>) => void | null;
+  waitUntil: ((promise: Promise<unknown>) => void) | null;
   /**
    * A pubsub subscriber. Designed to be compatible with clients from the `redis` package.
    */
