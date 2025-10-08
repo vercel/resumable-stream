@@ -331,9 +331,22 @@ function incrOrDone(publisher: Publisher, key: string): Promise<typeof DONE_VALU
   });
 }
 
+// Check if resumable-stream namespace is enabled
+// Supports: DEBUG=*, DEBUG=resumable-stream:*, DEBUG=*,other-namespace, etc.
+// note, this duplicates logic from the `debug` package
+// which we are not adding as a dependency for security reasons.
 function isDebug() {
-  return process.env.DEBUG;
+  const debug = process.env.DEBUG;
+  if (!debug) return false;
+
+  const namespaces = debug.split(',').map(ns => ns.trim());
+  return namespaces.some(ns =>
+    ns === '*' ||
+    ns === 'resumable-stream' ||
+    ns.startsWith('resumable-stream:')
+  );
 }
+
 
 function debugLog(...messages: unknown[]) {
   if (isDebug()) {
