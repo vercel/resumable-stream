@@ -8,7 +8,10 @@ import { Publisher, Subscriber } from "./types";
  */
 export function createSubscriberAdapter(client: Redis): Subscriber {
   const adapter: Subscriber = {
-    connect: () => client.connect(),
+    connect: () => {
+      // ioredis Redis instances are connected by default. Nothing to do.
+      return Promise.resolve();
+    },
     subscribe: async function (channel: string, callback: (message: string) => void) {
       client.on("message", (innerChannel, message) => {
         if (channel === innerChannel) {
@@ -29,7 +32,10 @@ export function createSubscriberAdapter(client: Redis): Subscriber {
  */
 export function createPublisherAdapter(client: Redis): Publisher {
   const adapter: Publisher = {
-    connect: () => client.connect(),
+    connect: () => {
+      // ioredis Redis instances are connected by default. Nothing to do.
+      return Promise.resolve();
+    },
     publish: (channel: string, message: string | Buffer) => client.publish(channel, message),
     set: (key: string, value: string | Buffer, options?: { EX?: number }) => {
       if (options?.EX) {
