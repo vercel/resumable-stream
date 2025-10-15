@@ -15,6 +15,12 @@
     "./ioredis": "./dist/ioredis.js",
     "./redis": "./dist/redis.js"
   },
+  "typesVersions": {
+    "*": {
+      "ioredis": ["dist/ioredis.d.ts"],
+      "redis": ["dist/redis.d.ts"]
+    }
+  },
   "scripts": {
     "test": "DEBUG=1 vitest",
     "test:watch": "vitest watch",
