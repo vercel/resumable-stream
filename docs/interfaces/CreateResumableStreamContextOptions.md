@@ -1,4 +1,4 @@
-[**Resumable Stream v2.2.4**](../README.md)
+[**Resumable Stream v2.2.7**](../README.md)
 
 ***
 

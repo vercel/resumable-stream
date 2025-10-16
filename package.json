@@ -29,7 +29,7 @@
     "test": "DEBUG=1 vitest",
     "test:watch": "vitest watch",
     "clean": "rimraf dist",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && pnpm run docs",
     "prepublishOnly": "pnpm build",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "docs": "rimraf docs && pnpm typedoc"
