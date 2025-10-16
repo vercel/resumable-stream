@@ -1,6 +1,6 @@
 {
   "name": "resumable-stream",
-  "version": "2.2.6",
+  "version": "2.2.7",
   "description": "Library for resuming and following streams in distributed systems",
   "main": "dist/index.js",
   "files": [
@@ -17,8 +17,12 @@
   },
   "typesVersions": {
     "*": {
-      "ioredis": ["dist/ioredis.d.ts"],
-      "redis": ["dist/redis.d.ts"]
+      "ioredis": [
+        "dist/ioredis.d.ts"
+      ],
+      "redis": [
+        "dist/redis.d.ts"
+      ]
     }
   },
   "scripts": {
