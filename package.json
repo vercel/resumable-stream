@@ -1,6 +1,6 @@
 {
   "name": "resumable-stream",
-  "version": "2.2.7",
+  "version": "2.2.8",
   "description": "Library for resuming and following streams in distributed systems",
   "main": "dist/index.js",
   "files": [
@@ -47,7 +47,7 @@
     "rimraf": "^6.0.1",
     "typedoc": "^0.28.3",
     "typedoc-plugin-markdown": "^4.6.2",
-    "typescript": "^5",
+    "typescript": "^5.9.3",
     "vitest": "^3.1.1"
   },
   "keywords": [],
