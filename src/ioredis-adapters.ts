@@ -30,7 +30,7 @@ export function createSubscriberAdapter(client: Redis): Subscriber {
 
     unsubscribe: async (channel: string) => {
       handlers.delete(channel);
-      return client.unsubscribe(channel) as Promise<number>;
+      return client.unsubscribe(channel);
     },
   };
 }
