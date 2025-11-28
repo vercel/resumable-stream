@@ -10,12 +10,13 @@ export function createSubscriberAdapter(client: Redis): Subscriber {
   // Track all active handlers by channel
   const handlers: Map<string, (message: string) => void> = new Map();
 
-  client.on("message", (channel: string, message: string) => {
+  // Store reference to the listener for cleanup
+  const messageListener = (channel: string, message: string) => {
     const handler = handlers.get(channel);
     if (handler) {
       handler(message);
     }
-  });
+  };
 
   return {
     connect: () => {
@@ -24,12 +25,23 @@ export function createSubscriberAdapter(client: Redis): Subscriber {
     },
 
     subscribe: async (channel: string, callback: (message: string) => void) => {
+      // Add the global listener on first subscription
+      if (handlers.size === 0) {
+        client.on("message", messageListener);
+      }
+
       handlers.set(channel, callback);
       await client.subscribe(channel);
     },
 
     unsubscribe: async (channel: string) => {
       handlers.delete(channel);
+
+      // Remove the global listener when no more subscriptions
+      if (handlers.size === 0) {
+        client.removeListener("message", messageListener);
+      }
+
       return client.unsubscribe(channel);
     },
   };
