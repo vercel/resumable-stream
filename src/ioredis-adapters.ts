@@ -1,20 +1,21 @@
 import { Redis } from "ioredis";
 import { Publisher, Subscriber } from "./types";
 
-interface ListenerEntry {
-  channel: string;
-  callback: (message: string) => void;
-  wrappedListener: (innerChannel: string, message: string) => void;
-}
-
 /**
  * Creates a Subscriber adapter for a Redis client.
  * @param client - The Redis client to adapt
  * @returns A Subscriber interface compatible with the resumable stream
  */
 export function createSubscriberAdapter(client: Redis): Subscriber {
-  // track all active listeners by channel
-  const listeners: Map<string, ListenerEntry> = new Map();
+  // Track all active handlers by channel
+  const handlers: Map<string, (message: string) => void> = new Map();
+
+  client.on("message", (channel: string, message: string) => {
+    const handler = handlers.get(channel);
+    if (handler) {
+      handler(message);
+    }
+  });
 
   return {
     connect: () => {
@@ -22,39 +23,13 @@ export function createSubscriberAdapter(client: Redis): Subscriber {
       return Promise.resolve();
     },
 
-    subscribe: async function (channel: string, callback: ListenerEntry["callback"]) {
-      // Create a wrapped listener that filters by channel
-      const wrappedListener = (innerChannel: string, message: string) => {
-        if (channel === innerChannel) {
-          callback(message);
-        }
-      };
-
-      // Store the listener entry for later cleanup
-      listeners.set(channel, {
-        channel,
-        callback,
-        wrappedListener,
-      });
-
-      // Add the listener to the client
-      client.on("message", wrappedListener);
-
-      // Subscribe to the Redis channel
+    subscribe: async (channel: string, callback: (message: string) => void) => {
+      handlers.set(channel, callback);
       await client.subscribe(channel);
     },
 
     unsubscribe: async (channel: string) => {
-      // Get the listener entry for this channel
-      const entry = listeners.get(channel);
-
-      if (entry) {
-        // Remove the event listener from the client - THIS IS THE KEY FIX
-        client.removeListener("message", entry.wrappedListener);
-        listeners.delete(channel);
-      }
-
-      // Unsubscribe from the Redis channel
+      handlers.delete(channel);
       return client.unsubscribe(channel) as Promise<number>;
     },
   };
