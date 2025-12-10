@@ -1,8 +1,8 @@
-**Resumable Stream v2.2.8**
+**Resumable Stream v2.2.9**
 
 ***
 
-# Resumable Stream v2.2.8
+# Resumable Stream v2.2.9
 
 ## Namespaces
 
