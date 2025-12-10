@@ -100,6 +100,38 @@ const streamContext = createResumableStreamContext({
 });
 ```
 
+### Usage with custom Redis clients (Upstash, Valkey, etc.)
+
+If you want to use a different Redis-compatible client (like Upstash Redis, Valkey, or any other), you can use the generic interface by importing from `resumable-stream/generic`. This requires you to provide your own `Publisher` and `Subscriber` implementations.
+
+```typescript
+import { createResumableStreamContext } from "resumable-stream/generic";
+import type { Publisher, Subscriber } from "resumable-stream/generic";
+
+// Example: Create adapters for your Redis client
+const publisher: Publisher = {
+  connect: async () => { /* ... */ },
+  publish: async (channel, message) => { /* ... */ },
+  set: async (key, value, options) => { /* ... */ },
+  get: async (key) => { /* ... */ },
+  incr: async (key) => { /* ... */ },
+};
+
+const subscriber: Subscriber = {
+  connect: async () => { /* ... */ },
+  subscribe: async (channel, callback) => { /* ... */ },
+  unsubscribe: async (channel) => { /* ... */ },
+};
+
+const streamContext = createResumableStreamContext({
+  waitUntil: after,
+  publisher,
+  subscriber,
+});
+```
+
+**Note:** When using the generic interface, both `publisher` and `subscriber` are **required**. The library will throw an error if they are not provided.
+
 ## Type Docs
 
 [Type Docs](https://github.com/vercel/resumable-stream/blob/main/docs/README.md)
