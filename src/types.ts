@@ -74,6 +74,12 @@ export interface ResumableStreamContext {
    * @returns null if there is no stream with the given streamId. True if a stream with the given streamId exists. "DONE" if the stream is fully done.
    */
   hasExistingStream: (streamId: string) => Promise<null | true | "DONE">;
+
+  /**
+   * Cancels a stream. This affects all listener.
+   * @param streamId - The ID of the stream.
+   */
+  cancelStream: (streamId: string) => Promise<void>;
 }
 
 /**
