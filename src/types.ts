@@ -1,4 +1,5 @@
-import type { Redis } from "ioredis";
+import type { Redis as IORedis } from "ioredis";
+import type { Redis as UpstashRedis } from "@upstash/redis";
 
 export interface CreateResumableStreamContextOptions {
   /**
@@ -16,11 +17,11 @@ export interface CreateResumableStreamContextOptions {
   /**
    * A pubsub subscriber. Designed to be compatible with clients from the `redis` package.
    */
-  subscriber?: Subscriber | Redis;
+  subscriber?: Subscriber | IORedis | UpstashRedis;
   /**
    * A pubsub publisher. Designed to be compatible with clients from the `redis` package.
    */
-  publisher?: Publisher | Redis;
+  publisher?: Publisher | IORedis | UpstashRedis;
 }
 
 export interface ResumableStreamContext {
