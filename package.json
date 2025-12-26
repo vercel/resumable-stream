@@ -13,7 +13,8 @@
   "exports": {
     ".": "./dist/index.js",
     "./ioredis": "./dist/ioredis.js",
-    "./redis": "./dist/redis.js"
+    "./redis": "./dist/redis.js",
+    "./generic": "./dist/generic.js"
   },
   "typesVersions": {
     "*": {
@@ -22,6 +23,9 @@
       ],
       "redis": [
         "dist/redis.d.ts"
+      ],
+      "generic": [
+        "dist/generic.d.ts"
       ]
     }
   },
