@@ -270,6 +270,7 @@ export async function resumeStream(
             }
             if (Date.now() - start > 1000) {
               controller.error(new Error("Timeout waiting for ack"));
+              reject(new Error("Timeout waiting for ack"));
             }
           }, 1000);
           await ctx.subscriber.subscribe(
