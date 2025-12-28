@@ -87,6 +87,46 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ stre
 }
 ```
 
+### Cancelling an On-going Stream
+
+```ts
+
+const streamContext = createResumableStreamContext({
+  // ...
+});
+
+async function makeTestStream() {
+  const originalStream = obtainStreamSomehow();
+  return new ResumableStream({
+    start(controller) {
+      // ... read from `originalStream` into controller
+    },
+    cancel() {
+      originalStream.cancel();
+    }
+  });
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ streamId: string }> }
+) {
+  const { streamId } = await params;
+  const stream = await streamContext.createNewResumableStream(streamId, originalStream);
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+    },
+  });
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ streamId: string }> }) {
+  const { streamId } = await params;
+  await streamContext.cancelStream(streamId);
+  // ... 
+}
+```
+
 ### Usage with ioredis
 
 If you are using `ioredis` instead of `redis`, you can import from `resumable-stream/ioredis` instead. This changes the default Redis client to `ioredis`.
