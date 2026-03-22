@@ -59,13 +59,8 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
         makeStream: () => ReadableStream<string>,
         skipCharacters?: number
       ): Promise<ReadableStream<string> | null> => {
-        const initPromise = Promise.all(initPromises);
-        await initPromise;
-        await ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, "1", {
-          EX: 24 * 60 * 60,
-        });
         return createNewResumableStream(
-          initPromise,
+          Promise.all(initPromises),
           ctx as CreateResumableStreamContext,
           streamId,
           makeStream
@@ -140,8 +135,9 @@ async function createNewResumableStream(
     })
   );
   let isDone = false;
-  // This is ultimately racy if two requests for the same ID come at the same time.
-  // But this library is for the case where that would not happen.
+  // Subscribe to request channel BEFORE setting sentinel to avoid race condition.
+  // If we set sentinel first, a consumer might detect it and send a request
+  // before we've subscribed, causing the message to be lost.
   await ctx.subscriber.subscribe(
     `${ctx.keyPrefix}:request:${streamId}`,
     async (message: string) => {
@@ -163,6 +159,11 @@ async function createNewResumableStream(
       await Promise.all(promises);
     }
   );
+
+  // Set sentinel AFTER subscribing to ensure we're ready to receive requests
+  await ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, "1", {
+    EX: 24 * 60 * 60,
+  });
 
   return new ReadableStream<string>({
     start(controller) {
