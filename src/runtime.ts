@@ -267,6 +267,7 @@ export async function resumeStream(
             const val = await ctx.publisher.get(`${ctx.keyPrefix}:sentinel:${streamId}`);
             if (val === DONE_VALUE) {
               resolve(null);
+              return;
             }
             if (Date.now() - start > 1000) {
               controller.error(new Error("Timeout waiting for ack"));
