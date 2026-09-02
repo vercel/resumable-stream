@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { createTestingStream, streamToBuffer } from "../../testing-utils/testing-stream";
+import Redis from "ioredis";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   createResumableStreamContext as createRedisResumableStreamContext,
   Publisher,
   ResumableStreamContext,
   Subscriber,
 } from "..";
+import { createTestingStream, streamToBuffer } from "../../testing-utils/testing-stream";
 import { createResumableStreamContext as createIoredisResumableStreamContext } from "../ioredis";
-import Redis from "ioredis";
 
 export function resumableStreamTests(
   pubsubFactory: () => {
@@ -23,11 +23,14 @@ export function resumableStreamTests(
         : createIoredisResumableStreamContext;
 
     let resume: ResumableStreamContext;
+    let streamDonePromise: Promise<unknown>;
 
     beforeEach(async () => {
       const { subscriber, publisher } = pubsubFactory();
       resume = createResumableStreamContext({
-        waitUntil: () => Promise.resolve(),
+        waitUntil: (promise) => {
+          streamDonePromise = promise;
+        },
         subscriber,
         publisher,
         keyPrefix: "test-resumable-stream-" + crypto.randomUUID(),
@@ -266,6 +269,24 @@ export function resumableStreamTests(
       const result = await streamToBuffer(stream);
       expect(await resume.resumeExistingStream("test")).toBeNull();
       expect(result).toEqual("1\n2\n");
+    });
+
+    it("Should be able to cancel all subscribing streams", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      writer.write("1\n");
+      const stream2 = await resume.resumableStream("test", () => readable);
+      const result = await streamToBuffer(stream, 1);
+      const result2 = await streamToBuffer(stream2, 1);
+      expect(result).toEqual("1\n");
+      expect(result2).toEqual("1\n");
+
+      await resume.cancelStream("test");
+      await streamDonePromise;
+
+      // expect readable's (the originating stream) stream to have been cancelled
+      const { done } = await readable.getReader().read();
+      expect(done).toBe(true);
     });
   });
 }
