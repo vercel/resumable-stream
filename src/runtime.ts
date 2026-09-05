@@ -103,6 +103,7 @@ export function createResumableStreamContextFactory(defaults: _Private.RedisDefa
 interface ResumeStreamMessage {
   listenerId: string;
   skipCharacters?: number;
+  type?: "subscribe" | "unsubscribe";
 }
 
 const DONE_MESSAGE = "\n\n\nDONE_SENTINEL_hasdfasudfyge374%$%^$EDSATRTYFtydryrte\n";
@@ -150,6 +151,11 @@ async function createNewResumableStream(
     `${ctx.keyPrefix}:request:${streamId}`,
     async (message: string) => {
       const parsedMessage = JSON.parse(message) as ResumeStreamMessage;
+      if (parsedMessage.type === "unsubscribe") {
+        debugLog("Disconnecting listener", parsedMessage.listenerId);
+        listenerChannels = listenerChannels.filter((id) => id !== parsedMessage.listenerId);
+        return;
+      }
       debugLog("Connected to listener", parsedMessage.listenerId);
       listenerChannels.push(parsedMessage.listenerId);
       debugLog("parsedMessage", chunks.length, parsedMessage.skipCharacters);
@@ -272,7 +278,20 @@ export async function resumeStream(
 
       clearTimeout(ackTimeout);
       clearTimeout(watchdogTimeout);
-      cleanupPromise = Promise.resolve().then(() => ctx.subscriber.unsubscribe(chunkChannel));
+      cleanupPromise = Promise.resolve().then(async () => {
+        // Notify the producer to drop this listener so reconnects do not accumulate
+        // stale UUIDs and amplify PUBLISH fan-out.
+        await Promise.all([
+          ctx.subscriber.unsubscribe(chunkChannel),
+          ctx.publisher.publish(
+            `${ctx.keyPrefix}:request:${streamId}`,
+            JSON.stringify({
+              listenerId,
+              type: "unsubscribe",
+            })
+          ),
+        ]);
+      });
       return cleanupPromise;
     };
 

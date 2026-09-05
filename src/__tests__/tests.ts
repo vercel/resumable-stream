@@ -267,5 +267,99 @@ export function resumableStreamTests(
       expect(await resume.resumeExistingStream("test")).toBeNull();
       expect(result).toEqual("1\n2\n");
     });
+
+    it("should remove stale listeners on disconnect to avoid publish amplification after reconnects", async () => {
+      const { subscriber, publisher } = pubsubFactory();
+      if (!publisher || !subscriber) {
+        // Default redis/ioredis clients are created inside the library; skip publish counting there.
+        return;
+      }
+
+      let chunkPublishCount = 0;
+      const trackingPublisher: Publisher = {
+        connect: () => publisher.connect(),
+        publish: async (channel, message) => {
+          if (channel.includes(":chunk:")) {
+            chunkPublishCount++;
+          }
+          return publisher.publish(channel, message);
+        },
+        set: (key, value, options) => publisher.set(key, value, options),
+        get: (key) => publisher.get(key),
+        incr: (key) => publisher.incr(key),
+      };
+
+      const trackedResume = createResumableStreamContext({
+        waitUntil: () => Promise.resolve(),
+        subscriber,
+        publisher: trackingPublisher,
+        keyPrefix: "test-stale-listener-" + crypto.randomUUID(),
+      });
+
+      const { readable, writer } = createTestingStream();
+      const producer = await trackedResume.createNewResumableStream("test", () => readable);
+      writer.write("1\n");
+
+      // First consumer connects, then disconnects (simulating a client reconnect).
+      const consumer1 = await trackedResume.resumeExistingStream("test");
+      expect(consumer1).toBeTruthy();
+      const consumer1Reader = consumer1!.getReader();
+      expect((await consumer1Reader.read()).value).toEqual("1\n");
+      await consumer1Reader.cancel();
+
+      // Allow unsubscribe notification to reach the producer.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const publishesAfterDisconnect = chunkPublishCount;
+
+      // Second consumer reconnects with a fresh listener UUID.
+      const consumer2 = await trackedResume.resumeExistingStream("test");
+      expect(consumer2).toBeTruthy();
+      await streamToBuffer(consumer2, 1);
+
+      const publishesAfterReconnectCatchup = chunkPublishCount;
+      // Catch-up should publish only to the new listener (buffered content), not stale ones.
+      expect(publishesAfterReconnectCatchup - publishesAfterDisconnect).toBe(1);
+
+      writer.write("2\n");
+      writer.write("3\n");
+      writer.close();
+
+      const producerResult = await streamToBuffer(producer);
+      const consumer2Result = await streamToBuffer(consumer2);
+      expect(producerResult).toEqual("1\n2\n3\n");
+      expect(consumer2Result).toEqual("2\n3\n");
+
+      // Live chunks after reconnect must fan out once (active listener only), not to stale UUIDs.
+      // 2 live chunks + 1 DONE message = 3 publishes to the single active listener.
+      expect(chunkPublishCount - publishesAfterReconnectCatchup).toBe(3);
+    });
+
+    it("should keep publishing to multiple active consumers after one disconnects", async () => {
+      const { readable, writer } = createTestingStream();
+      const producer = await resume.createNewResumableStream("test", () => readable);
+      writer.write("1\n");
+
+      const consumer1 = await resume.resumeExistingStream("test");
+      const consumer2 = await resume.resumeExistingStream("test");
+      expect(consumer1).toBeTruthy();
+      expect(consumer2).toBeTruthy();
+
+      const consumer1Reader = consumer1!.getReader();
+      expect((await consumer1Reader.read()).value).toEqual("1\n");
+      await streamToBuffer(consumer2, 1);
+      await consumer1Reader.cancel();
+
+      // Allow unsubscribe notification to reach the producer.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      writer.write("2\n");
+      writer.close();
+
+      const producerResult = await streamToBuffer(producer);
+      const consumer2Result = await streamToBuffer(consumer2);
+      expect(producerResult).toEqual("1\n2\n");
+      expect(consumer2Result).toEqual("2\n");
+    });
   });
 }
