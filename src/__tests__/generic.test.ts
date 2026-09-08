@@ -49,6 +49,37 @@ describe("generic interface", () => {
     vi.useRealTimers();
   });
 
+  it("should subscribe before making a new stream resumable", async () => {
+    const { publisher, subscriber } = createInMemoryPubSubForTesting();
+    const operations: string[] = [];
+    const ctx = createResumableStreamContext({
+      waitUntil: null,
+      publisher: {
+        ...publisher,
+        set: async (key, value, options) => {
+          operations.push("set");
+          return publisher.set(key, value, options);
+        },
+      },
+      subscriber: {
+        ...subscriber,
+        subscribe: async (channel, callback) => {
+          const result = await subscriber.subscribe(channel, callback);
+          operations.push("subscribe");
+          return result;
+        },
+      },
+      keyPrefix: "test-subscribe-before-sentinel",
+    });
+    const { readable, writer } = createTestingStream();
+
+    const stream = await ctx.createNewResumableStream("test-stream", () => readable);
+
+    expect(operations).toEqual(["subscribe", "set"]);
+    writer.close();
+    await streamToBuffer(stream);
+  });
+
   it("should work with custom publisher/subscriber implementations", async () => {
     const { publisher, subscriber } = createInMemoryPubSubForTesting();
 
