@@ -173,50 +173,76 @@ async function createNewResumableStream(
     start(controller) {
       const stream = makeStream();
       const reader = stream.getReader();
+      async function finish(error?: unknown) {
+        if (isDone) {
+          return;
+        }
+        isDone = true;
+        debugLog(error === undefined ? "Stream done" : "Stream errored");
+        try {
+          if (error === undefined) {
+            controller.close();
+          } else {
+            controller.error(error);
+          }
+        } catch (e) {
+          //console.error(e);
+        }
+        const promises: Promise<unknown>[] = [];
+        debugLog("setting sentinel to done");
+        promises.push(
+          ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, DONE_VALUE, {
+            EX: 24 * 60 * 60,
+          })
+        );
+        promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
+        for (const listenerId of listenerChannels) {
+          debugLog("sending done message to", listenerId);
+          promises.push(
+            ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, DONE_MESSAGE)
+          );
+        }
+        await Promise.all(promises);
+        streamDoneResolver?.();
+        debugLog("Cleanup done");
+      }
       function read() {
-        reader.read().then(async ({ done, value }) => {
-          if (done) {
-            isDone = true;
-            debugLog("Stream done");
+        reader
+          .read()
+          .then(async ({ done, value }) => {
+            if (done) {
+              await finish();
+              return;
+            }
+            chunks.push(value);
             try {
-              controller.close();
+              debugLog("Enqueuing line", value);
+              controller.enqueue(value);
             } catch (e) {
-              //console.error(e);
+              // If we cannot enqueue, the stream is already closed, but we WANT to continue.
             }
             const promises: Promise<unknown>[] = [];
-            debugLog("setting sentinel to done");
-            promises.push(
-              ctx.publisher.set(`${ctx.keyPrefix}:sentinel:${streamId}`, DONE_VALUE, {
-                EX: 24 * 60 * 60,
-              })
-            );
-            promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
             for (const listenerId of listenerChannels) {
-              debugLog("sending done message to", listenerId);
-              promises.push(
-                ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, DONE_MESSAGE)
-              );
+              debugLog("sending line to", listenerId);
+              promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, value));
             }
             await Promise.all(promises);
-            streamDoneResolver?.();
-            debugLog("Cleanup done");
-            return;
-          }
-          chunks.push(value);
-          try {
-            debugLog("Enqueuing line", value);
-            controller.enqueue(value);
-          } catch (e) {
-            // If we cannot enqueue, the stream is already closed, but we WANT to continue.
-          }
-          const promises: Promise<unknown>[] = [];
-          for (const listenerId of listenerChannels) {
-            debugLog("sending line to", listenerId);
-            promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, value));
-          }
-          await Promise.all(promises);
-          read();
-        });
+            read();
+          })
+          .catch(async (error) => {
+            // The source stream errored, or a Redis call failed. Either way nothing reads the
+            // source anymore, so finish the stream instead of leaving the sentinel in progress.
+            reader.cancel(error).catch(() => {});
+            try {
+              await finish(error);
+            } catch (e) {
+              if (isDebug()) {
+                console.error(e);
+              }
+            } finally {
+              streamDoneResolver?.();
+            }
+          });
       }
       read();
     },

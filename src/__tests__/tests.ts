@@ -267,5 +267,22 @@ export function resumableStreamTests(
       expect(await resume.resumeExistingStream("test")).toBeNull();
       expect(result).toEqual("1\n2\n");
     });
+
+    it("should finish the stream when the source errors", async () => {
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.createNewResumableStream("test", () => readable);
+      writer.write("1\n");
+      const reader = stream!.getReader();
+      expect(await reader.read()).toEqual({ done: false, value: "1\n" });
+      const stream2 = await resume.resumeExistingStream("test");
+      expect(await streamToBuffer(stream2, 1)).toEqual("1\n");
+
+      writer.abort(new Error("source failed"));
+
+      await expect(reader.read()).rejects.toThrow("source failed");
+      expect(await streamToBuffer(stream2)).toEqual("");
+      expect(await resume.hasExistingStream("test")).toBe("DONE");
+      expect(await resume.resumeExistingStream("test")).toBeNull();
+    });
   });
 }
