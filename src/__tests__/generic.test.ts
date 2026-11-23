@@ -1,9 +1,25 @@
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { createResumableStreamContext } from "../generic";
 import { resumeStream } from "../runtime";
 import type { Publisher, Subscriber } from "../types";
 import { createInMemoryPubSubForTesting } from "../../testing-utils/in-memory-pubsub";
 import { streamToBuffer, createTestingStream } from "../../testing-utils/testing-stream";
+
+const MAX_REDIS_BULK_BYTES = 1024 * 1024;
+
+function createSizeLimitedPublisher(publisher: Publisher): Publisher {
+  return {
+    ...publisher,
+    publish: async (channel: string, message: string) => {
+      // Redis clients encode each message to UTF-8 on its own, so a split surrogate pair does not survive.
+      const encoded = Buffer.from(message);
+      if (encoded.byteLength > MAX_REDIS_BULK_BYTES) {
+        throw new Error("ERR Protocol error: invalid bulk length");
+      }
+      return publisher.publish(channel, encoded.toString());
+    },
+  };
+}
 
 function createResumeStreamTestContext(
   get: Publisher["get"] = async () => "1",
@@ -264,6 +280,101 @@ describe("generic interface", () => {
     resolveGet("1");
     await Promise.resolve();
     await stream!.cancel();
+  });
+
+  describe("oversized publishes", () => {
+    beforeEach(() => {
+      // Keep large payloads out of test output.
+      vi.spyOn(console, "log").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("splits a replay that exceeds the Redis message size limit", async () => {
+      const { publisher, subscriber } = createInMemoryPubSubForTesting();
+      const ctx = createResumableStreamContext({
+        waitUntil: null,
+        publisher: createSizeLimitedPublisher(publisher),
+        subscriber,
+        keyPrefix: "test-generic-" + crypto.randomUUID(),
+      });
+
+      const { readable, writer } = createTestingStream();
+      const producerStream = await ctx.resumableStream("test-large-replay", () => readable);
+
+      const replay = "a" + "😀".repeat(262_144);
+      writer.write(replay);
+
+      const resumedStream = await ctx.resumableStream("test-large-replay", () => {
+        throw new Error("Should not be called");
+      });
+
+      writer.write("tail");
+      writer.close();
+
+      const expected = replay + "tail";
+      const result1 = await streamToBuffer(producerStream!);
+      const result2 = await streamToBuffer(resumedStream!);
+      expect(result1 === expected).toBe(true);
+      expect(result2 === expected).toBe(true);
+    });
+
+    it("splits a live chunk that exceeds the Redis message size limit", async () => {
+      const { publisher, subscriber } = createInMemoryPubSubForTesting();
+      const ctx = createResumableStreamContext({
+        waitUntil: null,
+        publisher: createSizeLimitedPublisher(publisher),
+        subscriber,
+        keyPrefix: "test-generic-" + crypto.randomUUID(),
+      });
+
+      const { readable, writer } = createTestingStream();
+      const producerStream = await ctx.resumableStream("test-large-live", () => readable);
+      const resumedStream = await ctx.resumableStream("test-large-live", () => {
+        throw new Error("Should not be called");
+      });
+
+      const liveChunk = "€".repeat(349_526) + "!";
+      writer.write(liveChunk);
+      writer.write("tail");
+      writer.close();
+
+      const expected = liveChunk + "tail";
+      const result1 = await streamToBuffer(producerStream!);
+      const result2 = await streamToBuffer(resumedStream!);
+      expect(result1 === expected).toBe(true);
+      expect(result2 === expected).toBe(true);
+    });
+
+    it("does not close a resumed stream when a part equals the DONE message", async () => {
+      const { publisher, subscriber } = createInMemoryPubSubForTesting();
+      const ctx = createResumableStreamContext({
+        waitUntil: null,
+        publisher,
+        subscriber,
+        keyPrefix: "test-generic-" + crypto.randomUUID(),
+      });
+
+      const { readable, writer } = createTestingStream();
+      const producerStream = await ctx.resumableStream("test-done-part", () => readable);
+      const resumedStream = await ctx.resumableStream("test-done-part", () => {
+        throw new Error("Should not be called");
+      });
+
+      const liveChunk =
+        "a".repeat(262_144) + "\n\n\nDONE_SENTINEL_hasdfasudfyge374%$%^$EDSATRTYFtydryrte\n";
+      writer.write(liveChunk);
+      writer.write("tail");
+      writer.close();
+
+      const expected = liveChunk + "tail";
+      const result1 = await streamToBuffer(producerStream!);
+      const result2 = await streamToBuffer(resumedStream!);
+      expect(result1 === expected).toBe(true);
+      expect(result2 === expected).toBe(true);
+    });
   });
 
   it("should throw error if publisher is not provided", () => {

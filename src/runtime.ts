@@ -106,6 +106,11 @@ const DONE_VALUE = "DONE";
 
 const DEFAULT_DONE_WATCHDOG_INTERVAL_MS = 10_000;
 
+// Redis rejects a request above its size limit (proto-max-bulk-len, or a hosted plan's request
+// limit), so a larger payload is split across several PUBLISH commands. A UTF-16 code unit is at
+// most 3 bytes of UTF-8, which keeps a part below 1 MiB, the lowest proto-max-bulk-len Redis accepts.
+const MAX_PUBLISH_LENGTH = 256 * 1024;
+
 async function resumeExistingStream(
   initPromise: Promise<unknown>,
   ctx: CreateResumableStreamContext,
@@ -152,9 +157,7 @@ async function createNewResumableStream(
       const chunksToSend = chunks.join("").slice(parsedMessage.skipCharacters || 0);
       debugLog("sending chunks", chunksToSend.length);
       const promises: Promise<unknown>[] = [];
-      promises.push(
-        ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${parsedMessage.listenerId}`, chunksToSend)
-      );
+      promises.push(publishChunk(ctx, parsedMessage.listenerId, chunksToSend));
       if (isDone) {
         promises.push(
           ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${parsedMessage.listenerId}`, DONE_MESSAGE)
@@ -212,7 +215,7 @@ async function createNewResumableStream(
           const promises: Promise<unknown>[] = [];
           for (const listenerId of listenerChannels) {
             debugLog("sending line to", listenerId);
-            promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, value));
+            promises.push(publishChunk(ctx, listenerId, value));
           }
           await Promise.all(promises);
           read();
@@ -401,6 +404,37 @@ export async function resumeStream(
       },
     });
   });
+}
+
+function publishChunk(
+  ctx: CreateResumableStreamContext,
+  listenerId: string,
+  chunk: string
+): Promise<unknown> {
+  const channel = `${ctx.keyPrefix}:chunk:${listenerId}`;
+  if (chunk.length <= MAX_PUBLISH_LENGTH) {
+    return ctx.publisher.publish(channel, chunk);
+  }
+  // All parts are issued before returning, so a publisher that delivers in call order keeps any later
+  // publish to this listener after them.
+  const promises: Promise<unknown>[] = [];
+  let start = 0;
+  while (start < chunk.length) {
+    let end = Math.min(start + MAX_PUBLISH_LENGTH, chunk.length);
+    // Each message is encoded on its own, so a surrogate pair must stay in one part.
+    const lastCodeUnit = chunk.charCodeAt(end - 1);
+    if (end < chunk.length && lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) {
+      end -= 1;
+    }
+    let part = chunk.slice(start, end);
+    // A resumed stream closes on a message that equals DONE_MESSAGE, so no part may equal it.
+    if (part === DONE_MESSAGE) {
+      part = part.slice(0, -1);
+    }
+    promises.push(ctx.publisher.publish(channel, part));
+    start += part.length;
+  }
+  return Promise.all(promises);
 }
 
 function incrOrDone(publisher: Publisher, key: string): Promise<typeof DONE_VALUE | number> {

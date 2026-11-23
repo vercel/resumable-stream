@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, onTestFinished, vi } from "vitest";
 import { createTestingStream, streamToBuffer } from "../../testing-utils/testing-stream";
 import {
   createResumableStreamContext as createRedisResumableStreamContext,
@@ -266,6 +266,26 @@ export function resumableStreamTests(
       const result = await streamToBuffer(stream);
       expect(await resume.resumeExistingStream("test")).toBeNull();
       expect(result).toEqual("1\n2\n");
+    });
+
+    it("should resume a stream with large output", async () => {
+      // Keep large payloads out of test output.
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      onTestFinished(() => log.mockRestore());
+      const { readable, writer } = createTestingStream();
+      const stream = await resume.resumableStream("test", () => readable);
+      const replayChunk = "a" + "😀".repeat(262_144);
+      const liveChunk = "€".repeat(349_526) + "!";
+      writer.write(replayChunk);
+      const stream2 = await resume.resumableStream("test", () => readable);
+      writer.write(liveChunk);
+      writer.write("2\n");
+      writer.close();
+      const expected = replayChunk + liveChunk + "2\n";
+      const result = await streamToBuffer(stream);
+      const result2 = await streamToBuffer(stream2);
+      expect(result === expected).toBe(true);
+      expect(result2 === expected).toBe(true);
     });
   });
 }
