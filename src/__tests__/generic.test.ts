@@ -266,6 +266,138 @@ describe("generic interface", () => {
     await stream!.cancel();
   });
 
+  describe("publishing to resumed listeners", () => {
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // Wraps a publisher so that publishes to chunk channels take `delayMs(n)` for the n-th call,
+    // and records how many publishes per channel are in flight at once.
+    function createSlowPublisher(publisher: Publisher, delayMs: (n: number) => number) {
+      let calls = 0;
+      let maxInFlight = 0;
+      const inFlight = new Map<string, number>();
+      const slowPublisher: Publisher = {
+        ...publisher,
+        publish: async (channel, message) => {
+          if (!channel.includes(":chunk:")) {
+            return publisher.publish(channel, message);
+          }
+          const count = (inFlight.get(channel) ?? 0) + 1;
+          inFlight.set(channel, count);
+          maxInFlight = Math.max(maxInFlight, count);
+          try {
+            await sleep(delayMs(calls++));
+            return await publisher.publish(channel, message);
+          } finally {
+            inFlight.set(channel, inFlight.get(channel)! - 1);
+          }
+        },
+      };
+      return { publisher: slowPublisher, maxInFlight: () => maxInFlight };
+    }
+
+    it("does not throttle reading the source by publish latency", async () => {
+      const { publisher, subscriber } = createInMemoryPubSubForTesting();
+      const slow = createSlowPublisher(publisher, () => 50);
+      const ctx = createResumableStreamContext({
+        waitUntil: null,
+        publisher: slow.publisher,
+        subscriber,
+        keyPrefix: "test-generic-" + crypto.randomUUID(),
+      });
+
+      const { readable, writer } = createTestingStream();
+      const producerStream = await ctx.resumableStream("test-slow-publish", () => readable);
+      const resumedStream = await ctx.resumableStream("test-slow-publish", () => {
+        throw new Error("Should not be called");
+      });
+
+      const parts = Array.from({ length: 20 }, (_, i) => `${i} `);
+      const start = Date.now();
+      for (const part of parts) {
+        writer.write(part);
+      }
+      writer.close();
+
+      expect(await streamToBuffer(producerStream!)).toBe(parts.join(""));
+      // Awaiting a 50ms publish per chunk would take about a second.
+      expect(Date.now() - start).toBeLessThan(250);
+      expect(await streamToBuffer(resumedStream!)).toBe(parts.join(""));
+    });
+
+    it("keeps chunks in order when publishes complete out of order", async () => {
+      const { publisher, subscriber } = createInMemoryPubSubForTesting();
+      // Alternate slow and fast publishes, like concurrent HTTP requests that overtake each other.
+      const slow = createSlowPublisher(publisher, (n) => (n % 2 === 0 ? 30 : 1));
+      const ctx = createResumableStreamContext({
+        waitUntil: null,
+        publisher: slow.publisher,
+        subscriber,
+        keyPrefix: "test-generic-" + crypto.randomUUID(),
+      });
+
+      const { readable, writer } = createTestingStream();
+      const producerStream = await ctx.resumableStream("test-ordering", () => readable);
+      writer.write("buffered ");
+      await sleep(5);
+      const resumedStream = await ctx.resumableStream("test-ordering", () => {
+        throw new Error("Should not be called");
+      });
+
+      const parts = Array.from({ length: 10 }, (_, i) => `${i} `);
+      for (const part of parts) {
+        writer.write(part);
+        await sleep(5);
+      }
+      writer.close();
+
+      const expected = "buffered " + parts.join("");
+      expect(await streamToBuffer(producerStream!)).toBe(expected);
+      expect(await streamToBuffer(resumedStream!)).toBe(expected);
+      expect(slow.maxInFlight()).toBe(1);
+    });
+
+    it("contains publish errors and still finishes the stream", async () => {
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const { publisher, subscriber } = createInMemoryPubSubForTesting();
+        const ctx = createResumableStreamContext({
+          waitUntil: null,
+          publisher: {
+            ...publisher,
+            publish: async (channel, message) => {
+              if (message === "fail ") {
+                throw new Error("publish failed");
+              }
+              return publisher.publish(channel, message);
+            },
+          },
+          subscriber,
+          keyPrefix: "test-generic-" + crypto.randomUUID(),
+        });
+
+        const { readable, writer } = createTestingStream();
+        const producerStream = await ctx.resumableStream("test-publish-error", () => readable);
+        const resumedStream = await ctx.resumableStream("test-publish-error", () => {
+          throw new Error("Should not be called");
+        });
+
+        writer.write("fail ");
+        await sleep(5);
+        writer.write("ok");
+        writer.close();
+
+        expect(await streamToBuffer(producerStream!)).toBe("fail ok");
+        expect(await streamToBuffer(resumedStream!)).toBe("ok");
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining("failed to publish"),
+          expect.any(Error)
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+  });
+
   it("should throw error if publisher is not provided", () => {
     expect(() => {
       createResumableStreamContext({

@@ -131,7 +131,7 @@ async function createNewResumableStream(
 ): Promise<ReadableStream<string> | null> {
   await initPromise;
   const chunks: string[] = [];
-  let listenerChannels: string[] = [];
+  const listeners = new Map<string, ListenerQueue>();
   let streamDoneResolver: () => void;
   ctx.waitUntil(
     new Promise<void>((resolve) => {
@@ -147,20 +147,22 @@ async function createNewResumableStream(
     async (message: string) => {
       const parsedMessage = JSON.parse(message) as ResumeStreamMessage;
       debugLog("Connected to listener", parsedMessage.listenerId);
-      listenerChannels.push(parsedMessage.listenerId);
+      const listener = createListenerQueue(
+        ctx.publisher,
+        `${ctx.keyPrefix}:chunk:${parsedMessage.listenerId}`
+      );
       debugLog("parsedMessage", chunks.length, parsedMessage.skipCharacters);
       const chunksToSend = chunks.join("").slice(parsedMessage.skipCharacters || 0);
       debugLog("sending chunks", chunksToSend.length);
-      const promises: Promise<unknown>[] = [];
-      promises.push(
-        ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${parsedMessage.listenerId}`, chunksToSend)
-      );
+      // Queue the buffered chunks before registering the listener, so they go out ahead of any
+      // live chunk the producer reads afterwards.
+      listener.send(chunksToSend);
       if (isDone) {
-        promises.push(
-          ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${parsedMessage.listenerId}`, DONE_MESSAGE)
-        );
+        listener.send(DONE_MESSAGE);
+      } else {
+        listeners.set(parsedMessage.listenerId, listener);
       }
-      await Promise.all(promises);
+      await listener.flush();
     }
   );
 
@@ -183,6 +185,11 @@ async function createNewResumableStream(
             } catch (e) {
               //console.error(e);
             }
+            // Listeners that connect from now on get the DONE message from the request handler.
+            const finalListeners = [...listeners];
+            listeners.clear();
+            // Deliver every chunk that is still queued before marking the stream as done.
+            await Promise.all(finalListeners.map(([, listener]) => listener.flush()));
             const promises: Promise<unknown>[] = [];
             debugLog("setting sentinel to done");
             promises.push(
@@ -191,11 +198,9 @@ async function createNewResumableStream(
               })
             );
             promises.push(ctx.subscriber.unsubscribe(`${ctx.keyPrefix}:request:${streamId}`));
-            for (const listenerId of listenerChannels) {
+            for (const [listenerId, listener] of finalListeners) {
               debugLog("sending done message to", listenerId);
-              promises.push(
-                ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, DONE_MESSAGE)
-              );
+              promises.push(listener.send(DONE_MESSAGE));
             }
             await Promise.all(promises);
             streamDoneResolver?.();
@@ -209,12 +214,12 @@ async function createNewResumableStream(
           } catch (e) {
             // If we cannot enqueue, the stream is already closed, but we WANT to continue.
           }
-          const promises: Promise<unknown>[] = [];
-          for (const listenerId of listenerChannels) {
+          // Don't wait for the publishes: reading the source must not be throttled by the
+          // round trip to Redis. Each listener's queue keeps its chunks in order.
+          for (const [listenerId, listener] of listeners) {
             debugLog("sending line to", listenerId);
-            promises.push(ctx.publisher.publish(`${ctx.keyPrefix}:chunk:${listenerId}`, value));
+            listener.write(value);
           }
-          await Promise.all(promises);
           read();
         });
       }
@@ -222,6 +227,57 @@ async function createNewResumableStream(
     },
   });
 }
+
+interface ListenerQueue {
+  /** Queues a chunk. Chunks queued while a publish is in flight are sent together. */
+  write(chunk: string): void;
+  /** Queues a message that is published on its own, after everything queued before it. */
+  send(message: string): Promise<void>;
+  /** Resolves once everything queued so far has been published (or has failed). */
+  flush(): Promise<void>;
+}
+
+/**
+ * Publishes to one listener's channel in order without making the caller wait.
+ *
+ * At most one publish per listener is in flight, so ordering does not depend on the publisher
+ * (e.g. an HTTP-based client may send concurrent commands over independent requests). Chunks
+ * written while a publish is in flight are joined into the next message, which keeps the backlog
+ * to roughly one round trip of output.
+ */
+function createListenerQueue(publisher: Publisher, channel: string): ListenerQueue {
+  let tail: Promise<void> = Promise.resolve();
+  let pending: string[] = [];
+  const enqueue = (getMessage: () => string) => {
+    tail = tail
+      .then(() => publisher.publish(channel, getMessage()))
+      .then(
+        () => {},
+        (e) => {
+          // Contain the error so it does not become an unhandled rejection or stop the queue.
+          console.error(`resumable-stream: failed to publish to ${channel}`, e);
+        }
+      );
+    return tail;
+  };
+  return {
+    write(chunk) {
+      pending.push(chunk);
+      if (pending.length > 1) {
+        // A publish for the pending chunks is already queued and has not started yet.
+        return;
+      }
+      enqueue(() => {
+        const message = pending.join("");
+        pending = [];
+        return message;
+      });
+    },
+    send: (message) => enqueue(() => message),
+    flush: () => tail,
+  };
+}
+
 /**
  * Creates a resumable stream of strings.
  *
